@@ -1,12 +1,13 @@
 ' *************************************************************
 ' EtherCAT Diagnostics Program
 '
-' Date: 13th Oct 2015
+' Date: 30th May 2018
+' Version: 1.0.0
 '
 ' Notes
 '
 ' DS402 Data Types : (used by co_read_axis and co_read)
-' 0x01	Boolean
+' 0x01    Boolean
 ' 0x02 integer8
 ' 0x03 integer16
 ' 0x04 integer32
@@ -83,12 +84,14 @@ GOSUB display_nw_config
 
 ' Display nw topology and link status for each slave on network.
 GOSUB nw_topology
-GOSUB display_port_link_lost_counters
-GOSUB display_slv_interrupt
+'?? GOSUB display_port_link_lost_counters
+'?? GOSUB display_slv_interrupt
 'GOSUB display_slv_dc_config
 'GOSUB display_slv_dc_status
 'GOSUB display_slv_coe_dc_config
-GOSUB display_system_slv_errs
+GOSUB display_system_slv_lnk_mode
+'?? GOSUB display_system_slv_errs
+GOSUB nw_stats
 
 HALT
 
@@ -670,7 +673,7 @@ display_slv_coe_dc_config:
 
 GOSUB display_star_line
 PRINT#comms, "Display Slave CoE Distributed Clock Configuration"
-PRINT#comms, "Slave on slot ";slt[0];" at position ";slv_pos[0]
+PRINT#comms, "Slave on slot ";slt[0];" at position ";m_slv_pos[0]
 PRINT#comms,""
 
 disp_format = disp_dec
@@ -766,15 +769,15 @@ ELSE
     num_slvs = VR(vr_index)
 ENDIF
 
-orig_slv_pos = slv_pos
+orig_slv_pos = m_slv_pos
 
 'For each slave in the network
 FOR j = 0 TO num_slvs-1
 
-    slv_pos = j
+    m_slv_pos = j
 
     PRINT#comms,""
-    PRINT#comms, "Slave on slot ";slt[0];" at position ";slv_pos[0]
+    PRINT#comms, "Slave on slot ";slt[0];" at position ";m_slv_pos[0]
 
     '
     esc_reg = $300
@@ -837,7 +840,51 @@ FOR j = 0 TO num_slvs-1
 
 NEXT j
 
-slv_pos = orig_slv_pos
+m_slv_pos = orig_slv_pos
+
+RETURN
+
+' ****************************************************************************************
+' Display system slave link detection mode (enhanced/standard)
+
+display_system_slv_lnk_mode:
+
+GOSUB display_star_line
+PRINT#comms,"Display Network Slave Link Detection Mode"
+
+IF NOT ETHERCAT($3,slt,vr_index) THEN
+    PRINT "Err: reading slave ESC status registers - failed to read number of slaves on network."
+ELSE
+    num_slvs = VR(vr_index)
+ENDIF
+
+orig_slv_pos = m_slv_pos
+
+'For each slave in the network
+FOR j = 0 TO num_slvs-1
+    
+    m_slv_pos = j
+    
+    PRINT#comms,""
+    PRINT#comms, "Slave on slot ";slt[0];" at position ";m_slv_pos[0]
+    
+    '
+    esc_reg = $110
+    esc_len = 2
+    PRINT#comms,""
+    PRINT#comms,"ECAT DL Status"
+    GOSUB read_esc
+    
+    '
+    esc_reg = $140
+    esc_len = 2
+    PRINT#comms,""
+    PRINT#comms,"PDI Control"
+    GOSUB read_esc
+    
+NEXT j
+
+m_slv_pos = orig_slv_pos
 
 RETURN
 
@@ -958,3 +1005,29 @@ ENDIF
 RETURN
 
 
+
+' ********************************************************************
+'
+nw_stats:
+
+' Telegram, including wk cnt errors.
+PRINT #comms,""
+PRINT #comms,"Network Telegram Statistics:"
+PRINT ETHERCAT($1D0,m_slt,0)
+
+' MAC stats
+PRINT #comms,""
+PRINT #comms,"MAC Statistics:"
+PRINT ETHERCAT($1D1,m_slt)
+
+' Network status stats
+PRINT #comms,""
+PRINT #comms,"Network Status Statistics:"
+PRINT ETHERCAT($1D2,m_slt)
+
+' Telegram Information
+PRINT #comms,""
+PRINT #comms,"Telegram Information:"
+PRINT ETHERCAT($1D3,m_slt)
+
+RETURN
