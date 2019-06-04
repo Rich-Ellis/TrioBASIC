@@ -1,8 +1,8 @@
 ' *************************************************************
 ' EtherCAT Diagnostics Program
 '
-' Date: 30th May 2018
-' Version: 1.0.0
+' Date: 4th June 2019
+' Version: 1.0.1
 '
 ' Notes
 '
@@ -23,6 +23,8 @@
 ' 0x0b SoE IDN array
 
 '
+
+DIM comms AS INTEGER
 
 comms = 0
 verbose = TRUE
@@ -90,6 +92,7 @@ GOSUB nw_topology
 'GOSUB display_slv_dc_status
 'GOSUB display_slv_coe_dc_config
 GOSUB display_system_slv_lnk_mode
+GOSUB display_system_slv_esi
 '?? GOSUB display_system_slv_errs
 GOSUB nw_stats
 
@@ -673,7 +676,7 @@ display_slv_coe_dc_config:
 
 GOSUB display_star_line
 PRINT#comms, "Display Slave CoE Distributed Clock Configuration"
-PRINT#comms, "Slave on slot ";slt[0];" at position ";m_slv_pos[0]
+PRINT#comms, "Slave on slot ";m_slt[0];" at position ";m_slv_pos[0]
 PRINT#comms,""
 
 disp_format = disp_dec
@@ -852,7 +855,7 @@ display_system_slv_lnk_mode:
 GOSUB display_star_line
 PRINT#comms,"Display Network Slave Link Detection Mode"
 
-IF NOT ETHERCAT($3,slt,vr_index) THEN
+IF NOT ETHERCAT($3,m_slt,vr_index) THEN
     PRINT "Err: reading slave ESC status registers - failed to read number of slaves on network."
 ELSE
     num_slvs = VR(vr_index)
@@ -862,26 +865,26 @@ orig_slv_pos = m_slv_pos
 
 'For each slave in the network
 FOR j = 0 TO num_slvs-1
-    
+
     m_slv_pos = j
-    
+
     PRINT#comms,""
     PRINT#comms, "Slave on slot ";slt[0];" at position ";m_slv_pos[0]
-    
+
     '
     esc_reg = $110
     esc_len = 2
     PRINT#comms,""
     PRINT#comms,"ECAT DL Status"
     GOSUB read_esc
-    
+
     '
     esc_reg = $140
     esc_len = 2
     PRINT#comms,""
     PRINT#comms,"PDI Control"
     GOSUB read_esc
-    
+
 NEXT j
 
 m_slv_pos = orig_slv_pos
@@ -1030,4 +1033,49 @@ PRINT #comms,""
 PRINT #comms,"Telegram Information:"
 PRINT ETHERCAT($1D3,m_slt)
 
+RETURN
+
+
+' ****************************************************************************************
+' Display system slave ESI
+
+display_system_slv_esi:
+
+GOSUB display_star_line
+PRINT#comms,"Display Network Slave SII Configuration data"
+
+IF NOT ETHERCAT($3,m_slt,vr_index) THEN
+    PRINT "Err: reading slave ESC status registers - failed to read number of slaves on network."
+ELSE
+    num_slvs = VR(vr_index)
+ENDIF
+
+orig_slv_pos = m_slv_pos
+
+'For each slave in the network
+FOR j = 0 TO num_slvs-1
+    
+    m_slv_pos = j
+    
+    GOSUB read_slave_esi
+    
+NEXT j
+
+m_slv_pos = orig_slv_pos
+
+RETURN
+
+' ********************************************************************
+'
+read_slave_esi:
+PRINT#comms, "Read SII Configuration data from slave"
+PRINT#comms, "Pos", m_slv_pos[0]
+FOR i = 0 TO 20 '$F
+    IF ETHERCAT($61, m_slt, m_slv_pos, i, 2, vr_index) = TRUE THEN
+        PRINT#comms, "0x"; HEX(i); ", = 0x"; HEX(VR(vr_index))
+    ELSE
+        PRINT#comms, "Error: failed to read slave at pos "; m_slv_pos[0]; ", addr 0x"; HEX(i)
+    ENDIF
+    
+NEXT i
 RETURN
