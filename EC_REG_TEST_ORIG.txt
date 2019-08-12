@@ -1,0 +1,194 @@
+' ****************************************************************************************
+'
+' EtherCAT Registration Testing
+'
+'
+' Regist 20 should be used for all new applications
+'
+' REGIST(20, channel, source, edge, window)
+' where
+' Channel : 0 = A, 1 = B
+' source  : 0 = first 24v input, 1 = z-mark, 2 = second 24v input, 3 = Selects the 5V registration pin
+'               (for the built-in axis only)
+' edge    : 0 = rising edge, 1 = falling edge
+' window  : 0 = no windowing, 1 = position must be inside OPEN_WIN, CLOSE_WIN,
+'               2 = position must be outside OPEN_WIN, CLOSE_WIN
+'
+' if channel A then use mark, reg_pos, regist_speed
+' if channel B then use markb, reg_posb, regist_speedb
+
+
+' Program Constants
+
+'Registration function constants
+channel_a = 0
+channel_b = 1
+src_first_input = 0
+src_z_mark = 1
+src_second_input = 2
+src_5v_reg_pin = 3
+edge_rising = 0
+edge_falling = 1
+windowing_none = 0
+windowing_inc = 1
+windowing_exc = 2
+
+
+' Program Data
+ax = 2
+
+
+' Begin
+
+WDOG = 1
+WA(100)
+
+' EtherCAT Drive Notes
+' AKD only triggers on input (not on Z-mark)
+'
+
+source = src_first_input'src_z_mark
+edge = edge_rising
+windowing = windowing_none
+OPEN_WIN AXIS(ax) = 0
+CLOSE_WIN AXIS(ax) = 300000
+GOSUB execute_registration_a
+
+'GOSUB dual_reg_test1
+
+STOP
+
+' ****************************************************************************************
+'
+execute_registration_a:
+    ' Regist
+    BASE(ax)
+    REGIST(20,0,source,edge,windowing)
+    WA(2)
+    FORWARD
+    WHILE NOT MARK
+    WEND
+    CANCEL
+    WAIT IDLE
+    PRINT "primary Z mark regist",ax
+    PRINT "Base",BASE[0], "Mark",MARK[0]
+    PRINT "Reg_pos",REG_POS, "mpos",MPOS
+    PRINT "Regist Speed",REGIST_SPEED
+
+    DEFPOS(0)
+
+RETURN
+
+' ****************************************************************************************
+'
+execute_registration_b:
+    ' Regist
+    BASE(ax)
+    REGIST(20,1,source,edge,windowing)
+    WA(2)
+    FORWARD
+    WHILE NOT MARKB
+    WEND
+    CANCEL
+    WAIT IDLE
+    PRINT "primary Z mark regist",ax
+    PRINT "Base",BASE[0], "Markb",MARKB[0]
+    PRINT "Reg_posb",REG_POSB, "mpos",MPOS
+    PRINT "Regist Speedb",REGIST_SPEEDB
+
+    DEFPOS(0)
+
+RETURN
+
+' ****************************************************************************************
+'
+primary_reg:
+    ' Regist using primary, z-mark, no windowing.
+    BASE(ax)
+    REGIST(20,0,1,0,0)
+    WA(2)
+    FORWARD
+    WHILE NOT MARK
+    WEND
+    CANCEL
+    WAIT IDLE
+    PRINT "primary Z mark regist",ax
+    PRINT "Base",BASE[0], "Mark",MARK[0]
+    PRINT "Regist",REG_POS, "mpos",MPOS
+    PRINT "Regist Speed",REGIST_SPEED
+
+    DEFPOS(0)
+
+RETURN
+
+' ****************************************************************************************
+'
+ext1_reg:
+ BASE(ax)
+    REGIST(5)
+    WA(2)
+    FORWARD
+    WHILE NOT MARK
+        value = MPOS
+    WEND
+    CANCEL
+    WAIT IDLE
+    PRINT "primary ext1  regist",ax
+    PRINT "Base",BASE[0], "Mark",MARK[0]
+    PRINT "Regist",REG_POS, "mpos",MPOS,value
+    PRINT "Regist Speed",REGIST_SPEED
+RETURN
+
+' ****************************************************************************************
+' Written for Omron Trajexia
+    '
+dual_reg_test1:
+
+    ' Regist using primary (0x05), ext1, no windowing.
+    BASE(ax)
+    'slave based registration
+    REGIST(5)
+    WA(2)
+    'module's time based registration
+    'channel (input) 0, rising edge, no windowing.
+    REGIST(0,0,0)
+    WA(2)
+
+    FORWARD
+    WHILE NOT MARK OR NOT R_MARK(0)
+    WEND
+    CANCEL
+    WAIT IDLE
+
+    PRINT "Slave based registration"
+    PRINT "primary ext1  regist",ax
+    PRINT "Base",BASE[0], "Mark",MARK[0]
+    PRINT "Reg_pos",REG_POS, "mpos",MPOS
+    PRINT "Regist Speed",REGIST_SPEED
+
+    PRINT "Module (timebased) registration"
+    PRINT "Base",BASE[0], "R_Mark",R_MARK(0)[0]
+    PRINT "R_Regpos",R_REGPOS(0), "mpos",MPOS
+    PRINT "R_RegistSpeed",R_REGISTSPEED(0)
+RETURN
+
+
+' ****************************************************************************************
+'
+config_axis:
+    BASE(ax)
+    UNITS = 1
+  P_GAIN = 1
+  I_GAIN = 0
+  D_GAIN = 0
+
+  SPEED = 100000
+  ACCEL = 1000000
+  DECEL = 1000000
+
+  FE_LIMIT = 20000
+
+  SERVO = 1
+RETURN
+
+
