@@ -1,0 +1,71 @@
+' ***************************************************************
+' EthernetIP
+' 16th August 2019
+'
+'
+' Read
+' ethernet(0, slot, function, endpoint_id, parameter_index)
+' Write
+' ethernet(1, slot, function, endpoint_id, parameter_index, parameter_value )
+'
+' The Ethernetip endpoints are indexed 1..4, and from power are
+' assigned the default instance (connection point) numbers as shown:
+'
+' First endpoint pair (controller producer/consumer)
+' endpoint 1: ethernetip 100
+' endpoint 2: ethernetip 101
+'
+' Second endpoint pair (controller producer/consumer)
+' endpoint 3: ethernetip 102
+' endpoint 4: ethernetip 103
+'
+' Parameter index
+' PEP_ADDRESS = 0x00
+' PEP_DATA_TYPE = 0x01 (vr,table,dio,aio)
+' PEP_DATA_FORMAT = 0x02, (int16/32,fp32/64)
+' PEP_LENGTH = 0x03,
+' PEP_CLASS = 0x04,
+' PEP_INSTANCE = 0x05,
+' PEP_OPERATION_MODE = 0x06
+' PEP_MEM_MAP = 0x07
+' PEP_CMD_TIMEOUT     = 0x08
+' PEP_CHAR_TIMEOUT    = 0x09
+' PEP_PORT_TCP_KEEP_EN   = 10
+' PEP_PORT_TCP_KEEPIDLE  = 11
+' PEP_PORT_TCP_KEEPINTVL = 12
+' PEP_PORT_TCP_KEEPCNT   = 13
+'
+
+DIM i,j AS INTEGER
+
+GOSUB display_eip
+GOSUB set_eip
+GOSUB display_eip
+
+STOP
+
+display_eip:
+FOR i = 0 TO 3
+    PRINT "Class: ";
+    ETHERNET(0,-1,14,1+i,4)
+
+    PRINT "Instance(cnx pt): ";
+    ETHERNET(0,-1,14,1+i,5)
+NEXT i
+RETURN
+
+set_eip:
+' Change Connection points of the first endpoint pair to 150 and 100.
+ETHERNET(1,-1,14,1,5,150)
+ETHERNET(1,-1,14,2,5,100)
+
+RETURN
+
+set_eip_default:
+' Reset to default the connection points of the first endpoint pair (100 & 101).
+ETHERNET(1,-1,14,1,5,100)
+ETHERNET(1,-1,14,2,5,101)
+
+RETURN
+
+

@@ -1,8 +1,10 @@
 ' ******************************************************************************
 ' EtherCAT Library
 '
-' Version 0.1
-' Date 12th August 2019
+' Release History
+' 0.1 12 Aug 2019 - initial issue
+' 0.2  6 Mar 2020 - Added method to display SM Watchdog configuration.
+' 0.3 19 Mar 2020 - Added ec_display_nw_telegram_stats
 '
 ' Notes
 ' 1. The user should define a free vr to be used by the library, and
@@ -331,7 +333,7 @@ FUNCTION ec_display_port_link_lost_cntrs(slt AS INTEGER)
             ENDIF
 
             'Port Forwarding Error
-            IF ec_get_esc_reg(slt, pos, $308 + j, 2, esc_data) THEN
+            IF ec_get_esc_reg(slt, pos, $308 + j, 1, esc_data) THEN
                 port_fwd_error_count(j) = esc_data(0)
             ENDIF
 
@@ -373,6 +375,60 @@ FUNCTION ec_display_port_link_lost_cntrs(slt AS INTEGER)
         NEXT j
 
         PRINT#mec_comms,"ECAT Processing frame errors ";ecat_proc_error_count[0]
+
+        PRINT#mec_comms,""
+
+    NEXT pos
+
+ENDFUNC ' ec_display_port_link_lost_cntrs
+
+
+' ********************************************************************
+' Function: ec_display_sm_watchdog
+'
+' Description:
+'
+'
+'
+FUNCTION ec_display_sm_watchdog(slt AS INTEGER)
+
+    DIM result AS BOOLEAN = TRUE
+    DIM num_slaves AS INTEGER = 0
+    DIM slv_cfg_addr, pos AS INTEGER
+    DIM esc_data AS INTEGER (2)
+
+    num_slaves = ec_get_num_slaves(slt)
+
+    FOR pos = 0 TO num_slaves-1
+
+        IF NOT ec_get_slave_config_addr(slt, pos, esc_data) THEN CONTINUE
+        slv_cfg_addr = esc_data(0)
+
+        PRINT#mec_comms,"Slave at Pos",pos[0],"Configured Address",slv_cfg_addr[0]
+
+        'Watchdog Divider (0x0400:0x0401), len 2 bytes
+        result = ec_get_esc_reg(slt, pos, $400, 2, esc_data)
+        PRINT#mec_comms,"WD Divider (0x0400:0x0401) (";result[0];") : 0x";HEX(esc_data(0))
+
+        'Watchdog Time PDI (0x0410:0x0411), 2 bytes
+        result = ec_get_esc_reg(slt, pos, $410, 2, esc_data)
+        PRINT#mec_comms,"WD Time PDI (0x0410:0x0411) (";result[0];") : 0x";HEX(esc_data(0))
+
+        'Watchdog Time Process Data (0x0420:0x0421), len 2 bytes
+        result = ec_get_esc_reg(slt, pos, $420, 2, esc_data)
+        PRINT#mec_comms,"WD Time Process Data (0x0420:0x0421) (";result[0];") : 0x";HEX(esc_data(0))
+
+        'Watchdog Status Process Data (0x0440:0x0441), len 2 bytes
+        result = ec_get_esc_reg(slt, pos, $440, 2, esc_data)
+        PRINT#mec_comms,"WD Status Process Data (0x0440:0x0441) (";result[0];") : 0x";HEX(esc_data(0))
+
+        'Watchdog Counter Process Data (0x0442), len 1 bytes
+        result = ec_get_esc_reg(slt, pos, $442, 1, esc_data)
+        PRINT#mec_comms,"WD Counter Process Data (0x0442 (";result[0];") : 0x";HEX(esc_data(0))
+
+        'Watchdog Counter PDI (0x0443), len 1 bytes
+        result = ec_get_esc_reg(slt, pos, $443, 2, esc_data)
+        PRINT#mec_comms,"WD Counter PDI (0x0443) (";result[0];") : 0x";HEX(esc_data(0))
 
         PRINT#mec_comms,""
 
@@ -466,6 +522,47 @@ FUNCTION ec_reset_all_link_cntrs(slt AS INTEGER)
 
 ENDFUNC
 
+' ********************************************************************
+' Function: ec_display_nw_telegram_stats
+'
+FUNCTION ec_display_nw_telegram_stats(slt AS INTEGER)
+    
+    ' MAC stats
+    PRINT #mec_comms,""
+    PRINT #mec_comms,"MAC Statistics:"
+    PRINT ETHERCAT($1D1,slt)
+    
+    ' Network status stats
+    PRINT #mec_comms,""
+    PRINT #mec_comms,"Network Status Statistics:"
+    PRINT ETHERCAT($1D2,slt)
+    
+    ' Telegram Information
+    PRINT #mec_comms,""
+    PRINT #mec_comms,"Telegram Information (inc wk cnt errors):"
+    PRINT ETHERCAT($1D3,slt)
+    
+    ' Telegram Transmit Information
+    PRINT #mec_comms,""
+    PRINT #mec_comms,"Telegram Transmit Information:"
+    PRINT ETHERCAT($1D5,slt,3)
+    
+    'Telegram watchdog counters
+    PRINT #mec_comms,""
+    PRINT #mec_comms,"Telegram Tx/Tx Watchdog Counter:"
+    PRINT #mec_comms,"(wd err limit, wd errs, telegram misses): ";
+    ETHERCAT($8d,slt,0)
+    
+    PRINT #mec_comms,"Telegram Driver Watchdog Counter:"
+    PRINT #mec_comms,"(wd err limit, wd errs, telegram misses): ";
+    ETHERCAT($8d,slt,1)
+    
+    'wk cnt error
+    
+    'system error
+    
+ENDFUNC
+
 ' ******************************************************************************
 ' DC Handlers
 '
@@ -485,21 +582,21 @@ FUNCTION ec_display_slv_dc_status(slt, pos AS INTEGER)
     PRINT#mec_comms,""
 
     'AL Status and Error Code
-    PRINT#comms,"AL Status (ESC 0x130)"
+    PRINT#mec_comms,"AL Status (ESC 0x130)"
     IF ec_get_esc_reg(slt, pos, $130, 2, esc_data) THEN
         PRINT#mec_comms, "ESC 0x130 = 0x";HEX(esc_data(0))
         PRINT#mec_comms,""
     ENDIF
 
     'AL Status and Error Code
-    PRINT#comms,"AL Error Status (ESC 0x134)"
+    PRINT#mec_comms,"AL Error Status (ESC 0x134)"
     IF ec_get_esc_reg(slt, pos, $134, 2, esc_data) THEN
         PRINT#mec_comms, "ESC 0x134 = 0x";HEX(esc_data(0))
         PRINT#mec_comms,""
     ENDIF
 
     'System Time Diff
-    PRINT#comms,"System Time Diff (ESC 0x92C)"
+    PRINT#mec_comms,"System Time Diff (ESC 0x92C)"
     IF ec_get_esc_reg(slt, pos, $92c, 4, esc_data) THEN
         PRINT#mec_comms, "ESC 0x92c = ";esc_data(0)[0]
         PRINT#mec_comms,""
@@ -628,57 +725,57 @@ FUNCTION ec_display_slv_coe_dc_config(slt,addr AS INTEGER)
         PRINT#mec_comms,""
     ENDIF
 
-    PRINT#comms,"Slave Min Cycle Time"
+    PRINT#mec_comms,"Slave Min Cycle Time"
     IF ec_read_sdo(slt, addr, $1c32, 5, 4, sdo_data) THEN
         PRINT#mec_comms, "SDO 0x1C32:5 = ";sdo_data(0)
         PRINT#mec_comms,""
     ENDIF
 
-    PRINT#comms,"Input Shift Time"
+    PRINT#mec_comms,"Input Shift Time"
     IF ec_read_sdo(slt, addr, $1c33, 3, 4, sdo_data) THEN
         PRINT#mec_comms, "SDO 0x1C33:5 = ";sdo_data(0)
         PRINT#mec_comms,""
     ENDIF
 
-    PRINT#comms,"Output Shift Time"
+    PRINT#mec_comms,"Output Shift Time"
     IF ec_read_sdo(slt, addr, $1c32, 3, 4, sdo_data) THEN
         PRINT#mec_comms, "SDO 0x1C32:3 = ";sdo_data(0)
         PRINT#mec_comms,""
     ENDIF
 
-    PRINT#comms,"Input Calc and Copy Time"
+    PRINT#mec_comms,"Input Calc and Copy Time"
     IF ec_read_sdo(slt, addr, $1c33, 6, 4, sdo_data) THEN
         PRINT#mec_comms, "SDO 0x1C33:6 = ";sdo_data(0)
         PRINT#mec_comms,""
     ENDIF
 
-    PRINT#comms,"Output Calc and Copy Time"
-    PRINT#comms,"(Min time between slave rx telegram and sync0"
+    PRINT#mec_comms,"Output Calc and Copy Time"
+    PRINT#mec_comms,"(Min time between slave rx telegram and sync0"
     IF ec_read_sdo(slt, addr, $1c32, 6, 4, sdo_data) THEN
         PRINT#mec_comms, "SDO 0x1C32:6 = ";sdo_data(0)
         PRINT#mec_comms,""
     ENDIF
 
-    PRINT#comms,"Input Delay Time"
+    PRINT#mec_comms,"Input Delay Time"
     IF ec_read_sdo(slt, addr, $1c33, 9, 4, sdo_data) THEN
         PRINT#mec_comms, "SDO 0x1C33:9 = ";sdo_data(0)
         PRINT#mec_comms,""
     ENDIF
 
-    PRINT#comms,"Output Delay Time"
+    PRINT#mec_comms,"Output Delay Time"
     IF ec_read_sdo(slt, addr, $1c32, 9, 4, sdo_data) THEN
         PRINT#mec_comms, "SDO 0x1C32:9 = ";sdo_data(0)
         PRINT#mec_comms,""
     ENDIF
 
 
-    PRINT#comms,"Input Sync Error"
+    PRINT#mec_comms,"Input Sync Error"
     IF ec_read_sdo(slt, addr, $1c33, 32, 4, sdo_data) THEN
         PRINT#mec_comms, "SDO 0x1C33:32 = 0x";sdo_data(0)
         PRINT#mec_comms,""
     ENDIF
 
-    PRINT#comms,"Output Sync Error"
+    PRINT#mec_comms,"Output Sync Error"
     IF ec_read_sdo(slt, addr, $1c32, 32, 4, sdo_data) THEN
         PRINT#mec_comms, "SDO 0x1C32:32 = ";sdo_data(0)
         PRINT#mec_comms,""
@@ -724,33 +821,33 @@ ENDFUNC
 ' Function: ec_display_coe_slv_errs
 '
 FUNCTION ec_display_coe_slv_errs(slt AS INTEGER)
-    
+
     DIM num_slaves AS INTEGER
     DIM sdo_data AS INTEGER(2)
     DIM pos,addr AS INTEGER
-    
+
     PRINT#mec_comms,"Display Network Slave CoE Error Status"
-    
+
     num_slaves = ec_get_num_slaves(slt)
-    
+
     'For each slave in the network
     FOR pos = 0 TO num_slaves-1
-        
+
         PRINT#mec_comms,""
-        
+
         '  Datatype: 0x04 integer32
         IF NOT ec_get_config_addr(slt, pos, sdo_data) THEN CONTINUE
         addr = sdo_data(0)
-        
+
         PRINT#mec_comms, "Slave on slot ";slt[0];" at pos: ";pos[0];" config addr: ";addr[0]
-        
+
         IF ec_read_sdo(slt, addr, $603F, 0, 4, sdo_data) THEN
             PRINT#mec_comms, "SDO 0x603F:0 = ";sdo_data(0)[0];" (0x";HEX(sdo_data(0));")"
             PRINT#mec_comms,""
         ENDIF
-        
+
     NEXT pos
-    
+
 ENDFUNC
 
 ' ********************************************************************
@@ -764,37 +861,37 @@ ENDFUNC
 ' data_type : DS402 data type.
 '
 FUNCTION ec_display_coe_value(slt,pos,index,sub_index,data_type AS INTEGER)
-    
+
     DIM num_slaves AS INTEGER
     DIM sdo_data AS INTEGER(2)
     DIM i,addr AS INTEGER
-    
+
     PRINT#mec_comms,"Display Network/Slave CoE Value"
-    
+
     num_slaves = ec_get_num_slaves(slt)
-    
+
     'For each slave in the network
     FOR i = 0 TO num_slaves-1
-        
+
         PRINT#mec_comms,""
         'Check if only required to access one slave.
         IF pos <> -1 THEN i = pos
-        
+
         '  Datatype: 0x04 integer32
         IF NOT ec_get_config_addr(slt, i, sdo_data) THEN CONTINUE
         addr = sdo_data(0)
-        
+
         PRINT#mec_comms, "Slave on slot ";slt[0];" at pos: ";i[0];" config addr: ";addr[0]
-        
+
         IF ec_read_sdo(slt, addr, index, sub_index, data_type, sdo_data) THEN
             PRINT#mec_comms, "SDO 0x";HEX(index);":";sub_index[0];" = ";sdo_data(0)[0];" (0x";HEX(sdo_data(0));")"
             PRINT#mec_comms,""
         ENDIF
-        
+
         'Exit if only required to access one slave.
         IF pos <> -1 THEN i = num_slaves
     NEXT i
-    
+
 ENDFUNC
 
 ' *******************************************************************************
@@ -1053,9 +1150,9 @@ ENDFUNC
 ' Write (non string) data to the given CoE object.
 '
 FUNCTION ec_get_config_addr(slt, pos AS INTEGER, addr AS INTEGER()) AS BOOLEAN
-    
+
     DIM status AS BOOLEAN = FALSE
-    
+
     status = ETHERCAT($4, slt, pos, mec_vr_index)
     IF NOT status THEN
         IF (mec_msg_level AND mec_msg_err) THEN
@@ -1067,9 +1164,9 @@ FUNCTION ec_get_config_addr(slt, pos AS INTEGER, addr AS INTEGER()) AS BOOLEAN
         ENDIF
         addr(0) = VR(mec_vr_index)
     ENDIF
-    
+
     RETURN status
-    
+
 ENDFUNC
 
 
@@ -1101,7 +1198,7 @@ FUNCTION ec_get_next_slot(from_slt AS INTEGER) AS INTEGER
     ENDIF
 
     i = from_slt + 1
-    WHILE (i < max_slt) AND (next_slt = -1)
+    WHILE (i <= max_slt) AND (next_slt = -1)
         IF COMMSTYPE SLOT(i) = 42 THEN
             next_slt = i
         ELSE
@@ -1178,7 +1275,7 @@ FUNCTION ec_display_system_and_slv_errs(slt AS INTEGER)
             esc_reg = esc_reg + 1
 
         NEXT i
-        
+
         esc_reg = $308
         FOR i = 0 TO 3
             PRINT#mec_comms,"Port",i[0]
@@ -1233,7 +1330,7 @@ ENDFUNC
 ' ********************************************************************
 ' Function: ec_display_nw_debug_stats
 '
-FUNCTION display_nw_debug_stats(slt AS INTEGER)
+FUNCTION ec_display_nw_debug_stats(slt AS INTEGER)
 
     ' Telegram, including wk cnt errors.
     PRINT #mec_comms,""
@@ -1254,7 +1351,12 @@ FUNCTION display_nw_debug_stats(slt AS INTEGER)
     PRINT #mec_comms,""
     PRINT #mec_comms,"Telegram Information:"
     PRINT ETHERCAT($1D3,slt)
-
+    
+    ' Telegram Transmit Information
+    PRINT #mec_comms,""
+    PRINT #mec_comms,"Telegram Transmit Information:"
+    PRINT ETHERCAT($1D5,slt,3)
+    
 ENDFUNC
 
 
@@ -1454,3 +1556,24 @@ FUNCTION clear_drive_errors( slt, num_first_axis, num_last_axis, ec_timeout, com
 ENDFUNC
 
 
+'**********************************************************
+'
+' NW_NODE_AXIS_MAP Handlers
+'
+
+'**********************************************************
+' Clear Entries
+' Clear entries from the given first to last alias addresses,
+' which are assumed to be contiguous
+'
+FUNCTION clear_nw_node_axis_map( slt, first_alias_addr, last_alias_addr, comms AS INTEGER) AS BOOLEAN
+    DIM result AS BOOLEAN = TRUE
+    DIM i AS INTEGER
+
+    FOR i = first_alias_addr TO last_alias_addr
+        NW_NODE_AXIS_MAP(slt,i,0) = -1
+    NEXT i
+
+    RETURN result
+
+ENDFUNC

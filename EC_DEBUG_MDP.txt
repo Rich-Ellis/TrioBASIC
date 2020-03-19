@@ -1,0 +1,2749 @@
+' *************************************************************
+' EtherCAT Debug Program
+'
+' Date: 17th July 2012
+'
+' Notes
+'
+' DS402 Data Types : (used by co_read_axis and co_read)
+' 0x01    Boolean
+' 0x02 integer8
+' 0x03 integer16
+' 0x04 integer32
+' 0x05 unsigned8
+' 0x06 unsigned16
+' 0x07 unsigned32
+' 0x08 real32
+' 0x09 visible STRING (read only)
+' 0011 real64
+' 0x15 integer64
+' 0x1b unsigned64
+'
+' 0x0A byte array
+' 0x0b UINT16 array (used for SoE IDN array)
+
+'
+' sdo write
+'>>?ethercat($40,0,1,$10f3,5,3,-1,1)
+' save
+' >>?ethercat($40,0,1,$1010,1,7,-1,$65766173)
+'
+'>?ethercat($40,0,1,$10f3,5,3,-1,1)
+'-1
+'>>ETHERCAT($41,0,1,$10f3,5,3)
+'1
+'-1
+'>>
+
+'comms = 0
+
+' Use slt = -1 for program to find etherCAT module, or fix slot to be used
+' by assigning value > -1 here.
+IF (CONTROL = 432) THEN
+    slt = 0
+ELSE
+    slt = -1
+ENDIF
+
+'slv_pos is offset from master, hence first slave  = 0
+slv_pos = 0
+slv_addr = 1002
+'DIM m_nvalues AS INT
+'DIM m_nfvalues AS FLOAT
+
+vr_index = 400
+
+' Notes
+
+' When reading SDO Values, object index:sub-index is passed in using :
+sdo_index = 0
+sdo_subindex = 0
+'and result is passed back in vr with index
+'vr_index
+
+'string display (how should strings be displayed
+str_chr = 0
+str_int = 1
+str_hex = 2
+sdo_str_display = str_chr
+
+'display format
+disp_hex = 16
+disp_dec = 10
+disp_format = disp_hex
+
+
+' ****************************************************************************************
+' Program Initialisation
+'
+GOSUB set_ec_slot_number
+
+' ****************************************************************************************
+' Network Startup Debug
+'
+' Restart network to obtain AL status code if necessary.
+'GOSUB run_debug_restart
+
+
+' ****************************************************************************************
+' Display Network Debug Information
+'
+begin:
+
+GOSUB display_star_line
+
+'GOSUB display_network_slaves
+'GOSUB verify_network_slaves
+'GOSUB fpga_test
+'STOP
+
+' Network Configuration
+GOSUB display_nw_config
+
+'General
+'GOSUB display_slave_sw_ver
+'GOSUB display_slave_sync
+
+
+'SII & DC config
+'GOSUB display_slave_sii_config
+'GOSUB display_slave_sii_config_full
+'GOSUB display_slv_dc_config
+'GOSUB display_slv_coe_dc_config
+
+'ESC
+'GOSUB display_slave_esc_config
+
+'SII
+'GOSUB display_slave_sii_config
+'GOSUB display_slave_sii_category
+'GOSUB display_slave_sii_config_full
+
+'Device Profile
+'GOSUB display_slave_profile
+
+'Coe
+'GOSUB display_slave_sdo
+'GOSUB display_pdo_profile
+
+'SoE
+'GOSUB display_soe_profile
+
+'Diagnosis Object
+'GOSUB display_slave_diag_obj
+
+GOSUB display_mdp_config_area
+STOP
+
+' Debug Status:
+dbg:
+GOSUB display_ec_err_log
+GOSUB display_slave_coe_err
+GOSUB display_slave_diag_obj
+GOSUB display_system_err_state
+GOSUB display_unit_err_state
+
+'GOSUB trio_slave_debug
+GOSUB display_system_slv_errs
+
+STOP
+
+PRINT "Program completed"
+
+STOP
+
+
+
+' ****************************************************************************************
+' API Library
+
+
+' ****************************************************************************************
+' Display Slave SII Configuration
+'
+display_slave_sii_config:
+GOSUB display_star_line
+PRINT "SII Configuration, Slot: "; slt[0]; " Slave pos: "; slv_pos[0], " Slave addr: "; slv_addr[0]
+
+sii_addr = $08
+sii_len = 4
+GOSUB read_sii
+
+sii_addr = $0a
+sii_len = 4
+GOSUB read_sii
+
+sii_addr = $0c
+sii_len = 4
+GOSUB read_sii
+
+sii_addr = $0e
+sii_len = 4
+GOSUB read_sii
+RETURN
+
+
+display_slave_sii_memory:
+GOSUB display_star_line
+PRINT "SII Configuration, Slot: "; slt[0]; " Slave pos: "; slv_pos[0], " Slave addr: "; slv_addr[0]
+
+FOR addr = $43 TO $43 + $43 STEP 1
+    sii_addr = addr
+    sii_len = 2
+    ETHERCAT($61, slt, slv_pos, sii_addr, sii_len, vr_index)
+
+    PRINT CHR(VR(vr_index) AND $FF);
+    PRINT CHR((VR(vr_index) >> 8) AND $FF);
+
+NEXT addr
+
+
+RETURN
+
+' ****************************************************************************************
+' Display Slave SII Configuration
+'
+display_slave_sii_config_full:
+GOSUB display_star_line
+PRINT "SII Configuration, Slot: "; slt[0]; " Slave pos: "; slv_pos[0], " Slave addr: "; slv_addr[0]
+
+'FOR i = 0 TO $1c
+FOR i = 0 TO 256
+    sii_addr = i
+    sii_len = 2
+    GOSUB read_sii
+NEXT i
+
+
+RETURN
+
+' ****************************************************************************************
+' Display Slave SII Category
+'
+' Note, variables prefixed sii_ are global
+'
+display_slave_sii_category:
+GOSUB display_star_line
+PRINT "SII Category, Slot: "; slt[0]; " Slave pos: "; slv_pos[0], " Slave addr: "; slv_addr[0]
+
+sii_addr = $40
+quit = FALSE
+
+WHILE NOT quit
+    GOSUB display_star_line
+    PRINT "Read Category Type, from address: 0x"; HEX(sii_addr)
+    sii_len = 2
+    GOSUB read_sii
+    sii_category_type = VR(vr_index)
+    sii_addr = sii_addr + 1
+
+    PRINT "Read Category Length (word size), from address: 0x"; HEX(sii_addr)
+    sii_len = 2
+    GOSUB read_sii
+    sii_cat_size = VR(vr_index)
+    sii_addr = sii_addr + 1
+    PRINT ""
+
+    IF sii_category_type = 10 THEN
+        GOSUB display_strings_sii_category
+    ELSEIF sii_category_type = 30 THEN
+        GOSUB display_general_sii_category
+    ELSEIF sii_category_type = 40 THEN
+        GOSUB display_fmmu_sii_category
+    ELSEIF sii_category_type = 41 THEN
+        GOSUB display_sm_sii_category
+    ELSEIF sii_category_type = 50 THEN
+        GOSUB display_pdo_sii_category
+    ELSEIF sii_category_type = 51 THEN
+        GOSUB display_pdo_sii_category
+    ELSE
+        quit = TRUE
+    ENDIF
+WEND
+
+RETURN
+
+' ****************************************************************************************
+' Display Slave Strings SII Category
+'
+display_strings_sii_category:
+GOSUB display_star_line
+PRINT "SII Strings Category ("; sii_category_type[0]; ")"
+PRINT "Type: Strings, Length (word size)"; sii_cat_size[0]
+
+sii_len = 2
+GOSUB get_sii
+sii_addr = sii_addr + 1
+
+value = VR(vr_index)
+
+num_strings = INT(value AND $ff)
+str_len = INT(value / 256)
+PRINT "Number of Strings ", num_strings[0]
+'PRINT "Length of first string  ", str_len[0]
+
+i = 0
+j = 0
+
+REPEAT
+
+    sii_len = 2
+    GOSUB get_sii
+    sii_addr = sii_addr + 1
+    value = VR(vr_index)
+
+
+    IF j = str_len THEN
+        str_len = INT(value AND $ff)
+        PRINT ""
+        PRINT CHR(value / 256);
+        j = 1
+        i = i + 1
+    ELSEIF j = (str_len - 1) THEN
+        PRINT CHR(value AND $ff)
+        str_len = INT(value / 256)
+        j = 0
+        i = i + 1
+    ELSEIF j < str_len THEN
+        PRINT CHR(value AND $ff);
+        PRINT CHR(value / 256);
+        j = j + 2
+    ENDIF
+
+    ' Check if we need to exit
+    IF j = str_len AND i + 1 = num_strings THEN i = num_strings
+    ' and if we've read beyond section
+    ' Todo
+
+UNTIL i = num_strings
+
+
+RETURN
+
+
+' ****************************************************************************************
+' Display Slave General SII Category
+'
+display_general_sii_category:
+GOSUB display_star_line
+PRINT "SII General Category ("; sii_category_type[0]; ")"
+PRINT "Type: General, Length "; sii_cat_size[0]
+
+FOR i = 0 TO sii_cat_size - 1
+    ' Group Idx
+    sii_len = 2
+    GOSUB get_sii
+    sii_addr = sii_addr + 1
+
+    IF i = 0 THEN
+        PRINT "Group string index                 : "; VR(vr_index) AND $ff
+        temp = INT(VR(vr_index) / 256)
+        PRINT "Image string index                 : "; temp[0]
+    ELSEIF i = 1 THEN
+        PRINT "Device Order string index          : "; VR(vr_index) AND $ff
+        temp = INT(VR(vr_index) / 256)
+        PRINT "Name string index                  : "; temp[0]
+    ELSEIF i = 2 THEN
+        PRINT "Reserved                           : "; VR(vr_index) AND $ff
+        temp = INT(VR(vr_index) / 256)
+        PRINT "CoE Details                        : 0x"; HEX(temp)
+        PRINT "Flags: enable SDO  - ";
+        IF temp AND $1 THEN PRINT "YES" ELSE PRINT "NO"
+        PRINT "Flags: enable SDO Info - ";
+        IF temp AND $2 THEN PRINT "YES" ELSE PRINT "NO"
+        PRINT "Flags: enable PDO Assign - ";
+        IF temp AND $4 THEN PRINT "YES" ELSE PRINT "NO"
+        PRINT "Flags: enable PDO Configuration  - ";
+        IF temp AND $8 THEN PRINT "YES" ELSE PRINT "NO"
+        PRINT "Flags: enable Upload at start  - ";
+        IF temp AND $10 THEN PRINT "YES" ELSE PRINT "NO"
+        PRINT "Flags: enable SDO complete access  - ";
+        IF temp AND $20 THEN PRINT "YES" ELSE PRINT "NO"
+
+    ELSEIF i = 3 THEN
+        PRINT "FoE Details                        : "; VR(vr_index) AND $ff
+        temp = INT(VR(vr_index) / 256)
+        PRINT "EoE Details                        : "; temp[0]
+    ELSEIF i = 4 THEN
+        PRINT "SoE Channels (reserved)            : "; VR(vr_index) AND $ff
+        temp = INT(VR(vr_index) / 256)
+        PRINT "DS402 Channels (reserved)          : "; temp[0]
+    ELSEIF i = 5 THEN
+        PRINT "SysMan Class (reserved)            : "; VR(vr_index) AND $ff
+        temp = INT(VR(vr_index) / 256)
+        PRINT "Flags                              : 0x"; HEX(temp)
+        PRINT "Flags: enable safeop - ";
+        IF temp AND $1 THEN PRINT "YES" ELSE PRINT "NO"
+        PRINT "Flags: enable not LRW - ";
+        IF temp AND $2 THEN PRINT "YES" ELSE PRINT "NO"
+    ELSEIF i = 6 THEN
+        PRINT "Current on EBus                    : "; VR(vr_index) [0]
+    ELSEIF i = 7 THEN
+        PRINT "Padding (reserved)                 : "; VR(vr_index) [0]
+    ELSEIF i = 8 THEN
+        PRINT "Physical Port                      : 0x"; HEX(VR(vr_index))
+
+        temp = INT(VR(vr_index))
+        FOR j = 0 TO 3
+            port_config = temp AND $F
+            PRINT "Port "; j[0]; " Config 0x"; HEX(port_config)
+            IF port_config = 1 THEN
+                PRINT "Port Use: MII"
+            ELSEIF port_config = 2 THEN
+                PRINT "Port Use: reserved"
+            ELSEIF port_config = 3 THEN
+                PRINT "Port Use: EBUS"
+            ELSE
+                PRINT "Port Use: unused"
+            ENDIF
+            temp = INT(temp / 16)
+        NEXT j
+    ELSEIF i > 8 AND i < 16 THEN
+        PRINT "Padding (reserved)                 : "; VR(vr_index) [0]
+    ELSE
+        PRINT "Value at address 0x"; HEX(sii_addr - 1); ", is 0x"; HEX(VR(vr_index))
+    ENDIF
+
+NEXT i
+
+RETURN
+
+' ****************************************************************************************
+' Display Slave FMMU SII Category
+'
+display_fmmu_sii_category:
+GOSUB display_star_line
+PRINT "SII FMMU Category ("; sii_category_type[0]; ")"
+PRINT "Type: FMMU, Length (word size)"; sii_cat_size[0]
+
+FOR i = 0 TO sii_cat_size - 1
+    ' Group Idx
+    sii_len = 2
+    GOSUB get_sii
+    sii_addr = sii_addr + 1
+    value = VR(vr_index)
+
+    FOR j = 0 TO 1
+        temp = value AND $FF
+        value = value / 256
+
+        IF temp = 0 THEN
+            PRINT "FMMU ", j[0], " Not Used"
+        ELSEIF temp = 1 THEN
+            PRINT "FMMU ", j[0], " used for outputs"
+        ELSEIF temp = 2 THEN
+            PRINT "FMMU ", j[0], " used for inputs"
+        ELSEIF temp = 3 THEN
+            PRINT "FMMU ", j[0], " used for Sync Manager Status (Read Mailbox)"
+        ELSE
+            PRINT "FMMU ", j[0], "not used"
+        ENDIF
+
+    NEXT j
+NEXT i
+
+RETURN
+
+
+' ****************************************************************************************
+' Display Slave SM SII Category
+'
+display_sm_sii_category:
+GOSUB display_star_line
+PRINT "SII SM Category("; sii_category_type[0]; ")"
+PRINT "Type: SM, Length (word size)"; sii_cat_size[0]
+PRINT ""
+
+j = 0
+FOR i = 0 TO sii_cat_size - 1
+    ' Group Idx
+    sii_len = 2
+    GOSUB get_sii
+    sii_addr = sii_addr + 1
+
+    IF (j * 4) = i THEN
+        PRINT "SM "; j[0]; " Physical Start Address : 0x"; HEX(VR(vr_index))
+    ELSEIF (j * 4) + 1 = i THEN
+        PRINT "SM "; j[0]; "  Length                : "; VR(vr_index) [0]
+    ELSEIF (j * 4) + 2 = i THEN
+        PRINT "SM "; j[0]; "  Control register      : 0x"; HEX(VR(vr_index) AND $ff)
+        PRINT "SM "; j[0]; "  Status register       : "; HEX((VR(vr_index) / 256) AND $ff)
+    ELSEIF (j * 4) + 3 = i THEN
+        PRINT "SM "; j[0]; "  Enable                : 0x"; HEX(VR(vr_index) AND $ff)
+        temp = INT(VR(vr_index) / 256)
+        PRINT "SM "; j[0]; "  Type                  : "; temp[0]
+        IF temp = 1 THEN
+            PRINT "SM "; j[0]; "  used for mailbox out"
+        ELSEIF temp = 2 THEN
+            PRINT "SM "; j[0]; "  used for mailbox in"
+        ELSEIF temp = 3 THEN
+            PRINT "SM "; j[0]; "  used for process data outputs"
+        ELSEIF temp = 4 THEN
+            PRINT "SM "; j[0]; "  used for process data inputs"
+        ELSE
+            PRINT "SM "; j[0]; "  - unknown type value."
+        ENDIF
+        PRINT ""
+        j = j + 1
+    ELSE
+        PRINT "Value at address 0x"; HEX(sii_addr - 1); ", is 0x"; HEX(VR(vr_index))
+    ENDIF
+
+NEXT i
+
+RETURN
+
+
+' ****************************************************************************************
+' Display Slave TxPDO SII Category
+'
+display_pdo_sii_category:
+DIM str_pdo_type AS STRING(12)
+
+IF sii_category_type = 50 THEN
+    str_pdo_type = "TxPDO"
+ELSEIF sii_category_type = 51 THEN
+    str_pdo_type = "RxPDO"
+ELSE
+    str_pdo_type = "Unknown PDO"
+ENDIF
+
+GOSUB display_star_line
+PRINT "SII "; str_pdo_type; " Category("; sii_category_type[0]; ")"
+PRINT "Type: "; str_pdo_type; " Length "; sii_cat_size[0]
+PRINT ""
+
+j = 0
+FOR i = 0 TO sii_cat_size - 1
+    ' Group Idx
+    sii_len = 2
+    GOSUB get_sii
+    sii_addr = sii_addr + 1
+
+    IF (j * 4) = i THEN
+        PRINT str_pdo_type; " "; j[0]; " Index                  : 0x"; HEX(VR(vr_index))
+    ELSEIF (j * 4) + 1 = i THEN
+        PRINT str_pdo_type; " "; j[0]; "  Number of entries     : "; VR(vr_index) AND $ff
+        temp = INT(VR(vr_index) / 256)
+        PRINT str_pdo_type; " "; j[0]; "  Related SM            : "; temp[0]
+    ELSEIF (j * 4) + 2 = i THEN
+        PRINT str_pdo_type; " "; j[0]; "  DC Synchronisation    : "; VR(vr_index) AND $ff
+        temp = INT(VR(vr_index) / 256)
+        PRINT str_pdo_type; " "; j[0]; "  Name string index     : "; temp[0]
+    ELSEIF (j * 4) + 3 = i THEN
+        PRINT str_pdo_type; " "; j[0]; "  Reserved              : "; VR(vr_index) [0]
+        PRINT ""
+        j = j + 1
+    ELSE
+        PRINT "Value at address 0x"; HEX(sii_addr - 1); ", is 0x"; HEX(VR(vr_index))
+    ENDIF
+
+NEXT i
+
+RETURN
+
+
+' ****************************************************************************************
+' Display Slave ESC Configuration
+'
+display_slave_esc_config:
+
+GOSUB display_star_line
+PRINT "ESC Configuration, Slot: "; slt[0]; " Slave pos: "; slv_pos[0], " Slave addr: "; slv_addr[0]
+
+esc_reg = $130
+esc_len = 2
+GOSUB read_esc
+
+esc_reg = $134
+esc_len = 2
+GOSUB read_esc
+
+'FMMU
+FOR i = 0 TO 1
+
+    esc_reg = $600 + (i * 16)
+    esc_len = 4
+    GOSUB read_esc
+
+    esc_reg = $604 + (i * 16)
+    esc_len = 2
+    GOSUB read_esc
+
+    esc_reg = $606 + (i * 16)
+    esc_len = 1
+    GOSUB read_esc
+
+    esc_reg = $607 + (i * 16)
+    esc_len = 1
+    GOSUB read_esc
+
+    esc_reg = $608 + (i * 16)
+    esc_len = 2
+    GOSUB read_esc
+
+    esc_reg = $60A + (i * 16)
+    esc_len = 1
+    GOSUB read_esc
+
+    esc_reg = $60B + (i * 16)
+    esc_len = 1
+    GOSUB read_esc
+
+    esc_reg = $60C + (i * 16)
+    esc_len = 1
+    GOSUB read_esc
+
+NEXT i
+
+'Sync Managers
+FOR i = 0 TO 8
+
+    esc_reg = $800 + (i * 8)
+    esc_len = 2
+    GOSUB read_esc
+
+    esc_reg = $802 + (i * 8)
+    esc_len = 2
+    GOSUB read_esc
+
+    esc_reg = $804 + (i * 8)
+    esc_len = 1
+    GOSUB read_esc
+
+    esc_reg = $805 + (i * 8)
+    esc_len = 1
+    GOSUB read_esc
+
+    esc_reg = $806 + (i * 8)
+    esc_len = 1
+    GOSUB read_esc
+
+    esc_reg = $807 + (i * 8)
+    esc_len = 1
+    GOSUB read_esc
+
+NEXT i
+
+'Cyclic Control & Distributed Clocks
+
+esc_reg = $980
+esc_len = 2
+GOSUB read_esc
+
+esc_reg = $982
+esc_len = 2
+GOSUB read_esc
+
+esc_reg = $98E
+esc_len = 1
+GOSUB read_esc
+
+esc_reg = $98F
+esc_len = 1
+GOSUB read_esc
+
+RETURN
+
+' ****************************************************************************************
+' Display Slave SDO Configuration
+'
+'Data
+
+display_slave_sdo:
+
+GOSUB display_star_line
+PRINT "ESC Configuration, Slot: "; slt[0]; " Slave pos: "; slv_pos[0], " Slave addr: "; slv_addr[0]
+
+sdo_index = $1c12
+sdo_subindex = 0
+sdo_type = 4
+GOSUB read_sdo
+
+sdo_subindex = 1
+sdo_type = 4
+GOSUB read_sdo
+
+sdo_index = $1c13
+sdo_subindex = 0
+sdo_type = 4
+GOSUB read_sdo
+
+sdo_subindex = 1
+sdo_type = 4
+GOSUB read_sdo
+
+
+sdo_index = $1600
+sdo_subindex = 0
+sdo_type = 4
+GOSUB read_sdo
+
+sdo_subindex = 1
+sdo_type = 4
+GOSUB read_sdo
+
+sdo_index = $1a00
+sdo_subindex = 0
+sdo_type = 4
+GOSUB read_sdo
+
+sdo_subindex = 1
+sdo_type = 4
+GOSUB read_sdo
+
+'Error Code object
+sdo_index = $603f
+sdo_subindex = 0
+sdo_type = 4
+GOSUB read_sdo
+
+RETURN
+
+' ****************************************************************************************
+' Display Slave Communication Profile
+'
+'Data
+
+display_slave_profile:
+
+GOSUB display_star_line
+PRINT#comms, "Display Device Communication Profile and Identity (read via SDO)"
+
+PRINT#comms, ""
+PRINT#comms, "Device Identity"
+PRINT#comms, "For Slave Device At Address: "; slv_addr[0]; " on slot: "; slt[0]
+PRINT#comms, ""
+
+sdo_index = $1018
+sdo_subindex = 1
+sdo_type = 4
+PRINT#comms, "Vendor ID : ";
+GOSUB read_sdo
+
+sdo_subindex = 2
+PRINT#comms, "Product ID : ";
+GOSUB read_sdo
+
+sdo_subindex = 3
+PRINT#comms, "Revision Number : ";
+GOSUB read_sdo
+
+sdo_subindex = 4
+PRINT#comms, "Serial Number : ";
+GOSUB read_sdo
+
+PRINT#comms, ""
+PRINT#comms, "Communication Profile"
+
+sdo_index = $1008
+sdo_subindex = 0
+sdo_str_len = 64
+PRINT#comms, ""
+PRINT#comms, "Manufacturer Device Name (0x1008:00) : "
+'GOSUB read_co_axis_string
+GOSUB read_sdo_string
+
+sdo_index = $1009
+sdo_subindex = 0
+sdo_str_len = 32
+PRINT#comms, ""
+PRINT#comms, "Manufacturer Hardware Version (0x1009:00) : "
+GOSUB read_sdo_string
+
+sdo_index = $100A
+sdo_subindex = 0
+sdo_str_len = 32
+PRINT#comms, ""
+PRINT#comms, "Manufacturer Software Version (0x100A:00) : "
+GOSUB read_sdo_string
+
+RETURN
+
+display_slave_sw_ver:
+
+GOSUB display_star_line
+PRINT#comms, "Display Device SW Version (read via SDO)"
+
+PRINT#comms, ""
+PRINT#comms, "Device Identity"
+PRINT#comms, "For Slave Device At Address: "; slv_addr[0]; " on slot: "; slt[0]
+PRINT#comms, ""
+
+sdo_type = 4
+sdo_index = $100A
+sdo_subindex = 0
+sdo_str_len = 32
+PRINT#comms, ""
+PRINT#comms, "Manufacturer Software Version (0x100A:00) : "
+GOSUB read_sdo_string
+
+RETURN
+
+' ****************************************************************************************
+' Display Slave Diagnosis Object
+'
+'Data
+
+display_slave_diag_obj:
+
+GOSUB display_star_line
+PRINT#comms, "Display Device Diagnosis Object (read via SDO)"
+PRINT#comms, "For Slave Device At Address: "; slv_addr[0]; " on slot: "; slt[0]
+PRINT#comms, ""
+
+sdo_index = $10f3
+sdo_subindex = 0
+sdo_type = 5
+PRINT#comms, "Number of SDO Entries : ";
+GOSUB read_sdo
+
+sdo_index = $10f3
+sdo_subindex = 1
+sdo_type = 5
+PRINT#comms, "Max Number of Messages : ";
+GOSUB read_sdo
+
+sdo_index = $10f3
+sdo_subindex = 2
+sdo_type = 5
+PRINT#comms, "Index of newest message : ";
+GOSUB read_sdo
+
+sdo_index = $10f3
+sdo_subindex = 3
+sdo_type = 5
+PRINT#comms, "Index of newest ack'd message : ";
+GOSUB read_sdo
+
+sdo_index = $10f3
+sdo_subindex = 4
+sdo_type = 1
+PRINT#comms, "New Messages Available : ";
+GOSUB read_sdo
+
+sdo_index = $10f3
+sdo_subindex = 5
+sdo_type = 6
+PRINT#comms, "Flags : ";
+GOSUB read_sdo
+
+PRINT#comms, ""
+PRINT#comms, "Diagnosis Object message format is (could be big-endian):"
+PRINT#comms, "Diagnostic Code (UINT32)"
+PRINT#comms, "Flags (UINT16)"
+PRINT#comms, "Text ID (UINT16)"
+PRINT#comms, "Time stamp (UINT64)"
+PRINT#comms, "Flags Param1 (UINT16) (optional)"
+PRINT#comms, "Additional params based upon Flags Param1 (optional)"
+
+sdo_index = $10f3
+sdo_subindex = 7
+sdo_str_len = 32
+sdo_str_display = str_hex
+PRINT#comms, ""
+PRINT#comms, "First diagnosis entry (0x10f3:07) : "
+'GOSUB read_co_axis_string
+GOSUB read_sdo_string
+
+RETURN
+
+' ****************************************************************************************
+' Display Slave Communication Profile
+'
+'Data
+
+display_slave_coe_err:
+
+GOSUB display_star_line
+PRINT#comms, "Display Slave CoE Error (read via SDO)"
+
+PRINT#comms, ""
+PRINT#comms, "For Slave Device At Address: "; slv_addr[0]; " on slot: "; slt[0]
+PRINT#comms, ""
+
+sdo_index = $603f
+sdo_subindex = 0
+sdo_type = 4
+PRINT#comms, "Slave CoE Err: ";
+GOSUB read_sdo
+
+RETURN
+
+' ****************************************************************************************
+' Display Slave Synchronisation
+'
+'Data
+
+display_slave_sync:
+
+GOSUB display_star_line
+PRINT#comms, "Display Slave Synchronisation"
+
+orig_disp_format = disp_format
+
+esc_reg = $9a0
+esc_len = 4
+disp_format = disp_dec
+PRINT#comms, "Cycle Time";
+GOSUB read_esc
+
+sdo_index = $1c32
+sdo_subindex = 0
+sdo_type = 5
+PRINT#comms, "0x1C32";
+GOSUB display_all_sdo_subindices
+
+
+sdo_index = $1c33
+sdo_subindex = 0
+sdo_type = 5
+PRINT#comms, "0x1C33";
+GOSUB display_all_sdo_subindices
+
+disp_format = orig_disp_format
+
+RETURN
+
+' ****************************************************************************************
+' Trio Slave Debug API Library
+
+
+' begin
+trio_slave_debug:
+
+GOSUB configure_sii_for_sync0
+
+'GOSUB configure_sii_for_sync0
+
+GOSUB display_sii_config
+GOSUB display_slv_startup_registers
+GOSUB display_slv_interrupts
+
+
+'GOSUB init_slave
+'gosub set_ctrl_mode
+'GOSUB read_slv_sm
+'GOSUB test_motion
+
+STOP
+
+
+' ********************************************************************
+' Trio Slave
+' Update SII to contain values to enable Sync0
+'
+configure_sii_for_sync0:
+
+'Enable DC Sync Out Unit in PDI Control Reg
+' 0x0140.10 = 1
+'Register is configured from SII address 0
+' OK
+
+' Set Sync/Latch PDI Configuration Register (0x151) to sync0 output
+' Register 0x150 and 0x151 are configured from SII address 1
+' 0x0151.0,1 0b00 : Push Pull, active low
+' 0x0151.0,1 0b01 : Open drain, active low
+' 0x0151.0,1 0b10 : Push Pull, active high
+' 0x0151.0,1 0b11 : Open source, active high
+' 0x0151.2 : Sync/latch config, where 0:latch input, 1:sync output
+' 0x0151.3 : SYNC0 mapped to AL Event Request register 0x0220.2. 0:disabled, 1:enabled
+'sii_addr = 1
+'sii_len = 2
+'sii_write = $600
+'GOSUB write_sii
+
+' 0x982:0983 - loaded from SII address 2
+' sync pulse length, value is in 10nsec units
+' OK
+
+' Write CRC
+sii_addr = 7
+sii_len = 2
+sii_write = $30
+GOSUB write_sii
+
+
+
+RETURN
+
+configure_sii_esc_registers:
+
+'0x982/3 is
+
+
+RETURN
+
+' ********************************************************************
+'
+set_config_station_addr:
+
+esc_reg = $10
+'Set configured station address (ESC 0x10)
+IF NOT ETHERCAT($30, slt, slv_pos, esc_reg, 2, slv_addr) THEN
+    PRINT "Err: failed to read set slave configured station address"
+ELSE
+    'Check address
+    esc_len = 2
+    GOSUB read_esc
+ENDIF
+
+
+RETURN
+
+
+' ********************************************************************
+' Trio Slave
+'
+set_ctrl_mode:
+CO_WRITE(slv_ax, $6060, 0, 4, -1, slv_ctrl_mode)
+RETURN
+
+' ********************************************************************
+' Trio Slave
+'
+test_motion:
+BASE(slv_ax)
+WHILE TRUE
+    MOVE(5000)
+    WAIT IDLE
+    WA(200)
+    MOVE(-5000)
+    WAIT IDLE
+    WA(200)
+WEND
+
+RETURN
+
+
+' ********************************************************************
+' Trio Slave
+'
+init_slave:
+
+FOR i = 0 TO 1
+
+    IF i = 0 THEN
+        sm_addr = $1000
+        sm_len = 34
+        sm_ctrl = $26
+
+
+    ELSEIF i = 1 THEN
+        sm_addr = $1200
+        sm_len = 34
+        sm_ctrl = $22
+
+
+    ENDIF
+
+    'SM
+    sm_base_address = $800 + i * 8
+
+    'Configure SM0 and SM1 mailboxes
+    'Address
+    esc_reg = sm_base_address + 0
+    esc_len = 2
+    esc_wr = sm_addr
+    GOSUB write_esc
+
+    'Length
+    esc_reg = sm_base_address + 2
+    esc_len = 2
+    esc_wr = sm_len
+    GOSUB write_esc
+
+    'Ctrl
+    esc_reg = sm_base_address + 4
+    esc_len = 1
+    esc_wr = sm_ctrl
+    GOSUB write_esc
+
+    'Activate
+    esc_reg = sm_base_address + 6
+    esc_len = 1
+    esc_wr = 1
+    GOSUB write_esc
+
+    'PDI Control
+    esc_reg = sm_base_address + 7
+    esc_len = 1
+    esc_wr = 0
+    GOSUB write_esc
+
+NEXT i
+
+RETURN
+
+
+' ********************************************************************
+' Trio Slave
+read_slv_sm:
+
+'sm 0 TO 3
+FOR i = 0 TO 3
+    'SM
+    sm_base_address = $800 + i * 8
+
+    'Address
+    esc_reg = sm_base_address + 0
+    esc_len = 2
+    GOSUB read_esc
+
+    ' Length
+    esc_reg = sm_base_address + 2
+    esc_len = 2
+    GOSUB read_esc
+
+    ' Control reg
+    esc_reg = sm_base_address + 4
+    esc_len = 1
+    GOSUB read_esc
+
+    ' Status reg
+    esc_reg = sm_base_address + 5
+    esc_len = 1
+    GOSUB read_esc
+
+    ' Activate reg
+    esc_reg = sm_base_address + 6
+    esc_len = 1
+    GOSUB read_esc
+
+    ' PDI reg
+    esc_reg = sm_base_address + 7
+    esc_len = 1
+    GOSUB read_esc
+
+    PRINT#comms, ""
+NEXT i
+
+RETURN
+
+
+
+' ***************************************************************************************
+' Slave SII Interface
+'
+
+' ********************************************************************
+'
+write_sii:
+IF NOT ETHERCAT($60, slt, slv_pos, sii_addr, sii_len, sii_write) THEN
+    PRINT "Err: failed to write to SII 0x"; HEX(sii_addr)
+ELSE
+    PRINT "SII write to 0x"; HEX(sii_addr), " of value ", "0x"; HEX(sii_write); " successful";
+ENDIF
+
+RETURN
+
+' ********************************************************************
+'
+read_sii:
+IF NOT ETHERCAT($61, slt, slv_pos, sii_addr, sii_len, vr_index) THEN
+    PRINT "Err: failed to read SII 0x"; HEX(sii_addr)
+ELSE
+    PRINT "SII 0x"; HEX(sii_addr), "=", "0x"; HEX(VR(vr_index)); " ";
+    GOSUB print_sii_addr_name
+ENDIF
+
+RETURN
+
+' ********************************************************************
+'
+get_sii:
+' Print error if fails to read value, otherwise return in vr.
+IF NOT ETHERCAT($61, slt, slv_pos, sii_addr, sii_len, vr_index) THEN
+    PRINT "Err: failed to read SII 0x"; HEX(sii_addr)
+ENDIF
+
+RETURN
+
+
+' ********************************************************************
+'
+print_sii_addr_name:
+IF sii_addr = $0 THEN
+    PRINT "(PDI Control)"
+ELSEIF sii_addr = $1 THEN
+    PRINT "(PDI Configuration)"
+ELSEIF sii_addr = $2 THEN
+    PRINT "(Sync Impulse Len)"
+ELSEIF sii_addr = $3 THEN
+    PRINT "(PDI Configuration 2)"
+ELSEIF sii_addr = $4 THEN
+    PRINT "(Configured Station Alias)"
+ELSEIF sii_addr = $5 OR sii_addr = 6 THEN
+    PRINT "(Reserved)"
+ELSEIF sii_addr = $7 THEN
+    PRINT "(Checksum)"
+ELSEIF sii_addr = $8 THEN
+    PRINT "(Vendor ID (LSW))"
+ELSEIF sii_addr = $9 THEN
+    PRINT "(Vendor ID (MSW))"
+ELSEIF sii_addr = $a THEN
+    PRINT "(Product Code)"
+ELSEIF sii_addr = $c THEN
+    PRINT "(Revision Number)"
+ELSEIF sii_addr = $e THEN
+    PRINT "(Serial Number)"
+ELSEIF sii_addr = $10 THEN
+    PRINT "(Execution Delay)"
+ELSEIF sii_addr = $11 THEN
+    PRINT "(Port 0 Delay)"
+ELSEIF sii_addr = $12 THEN
+    PRINT "(Port 1 Delay)"
+ELSEIF sii_addr = $18 THEN
+    PRINT "(Standard Receive Mailbox Offset)"
+ELSEIF sii_addr = $19 THEN
+    PRINT "(Standard Receive Mailbox Size)"
+ELSEIF sii_addr = $1A THEN
+    PRINT "(Standard Send Mailbox Offset)"
+ELSEIF sii_addr = $1b THEN
+    PRINT "(Standard Send Mailbox Size)"
+ELSEIF sii_addr = $1c THEN
+    PRINT "(Mailbox Protocol)"
+ELSEIF sii_addr = $3F THEN
+    PRINT "(Version)"
+ELSE
+    PRINT ""
+ENDIF
+RETURN
+
+
+read_sii_word:
+IF ETHERCAT($61, 0, 0, reg_no, 2, 0) = FALSE THEN
+    PRINT "Read "; HEX(reg_no); " failed"
+ENDIF
+RETURN
+
+read_sii_long:
+IF ETHERCAT($61, 0, 0, reg_no, 2, 0) = FALSE THEN
+    PRINT "Read "; HEX(reg_no); " failed"
+ENDIF
+IF ETHERCAT($61, 0, 0, reg_no + 1, 2, 1) = FALSE THEN
+    PRINT "Read "; HEX(reg_no); " failed"
+ENDIF
+RETURN
+
+
+' ********************************************************************
+' Display SII Slave Config (addresses 0 .. 7 )
+'
+display_sii_config:
+PRINT#comms, "Display Slave SII Configuration"
+PRINT#comms, "Slave on slot "; slt[0]; " at position "; slv_pos[0]
+
+FOR i = 0 TO 7
+    sii_addr = i
+    sii_len = 2
+    GOSUB read_sii
+NEXT i
+RETURN
+
+
+
+' ****************************************************************************************
+' API Library - General Display Handlers
+
+display_star_line:
+PRINT""
+PRINT"*********************************************************************** "
+PRINT""
+RETURN
+
+
+' ****************************************************************************************
+' API Library - ESC Access
+'
+
+' ********************************************************************
+'
+get_esc:
+VR(vr_index) = 0
+IF NOT ETHERCAT($31, slt, slv_pos, esc_reg, esc_len, vr_index) THEN
+    PRINT "Err: failed to read ESC 0x"; HEX(esc_reg)
+ENDIF
+RETURN
+
+' ********************************************************************
+'
+read_esc:
+VR(vr_index) = 0
+IF NOT ETHERCAT($31, slt, slv_pos, esc_reg, esc_len, vr_index) THEN
+    PRINT "Err: failed to read ESC 0x"; HEX(esc_reg)
+ELSE
+    PRINT "ESC 0x"; HEX(esc_reg), "= ";
+    IF disp_format = disp_hex THEN
+        PRINT#comms, "0x"; HEX(VR(vr_index));
+    ELSE
+        PRINT#comms, VR(vr_index) [0]
+    ENDIF
+    PRINT#comms, " ";
+    GOSUB print_esc_reg_name
+ENDIF
+
+RETURN
+
+' ********************************************************************
+'
+write_esc:
+VR(vr_index) = 0
+IF NOT ETHERCAT($30, slt, slv_pos, esc_reg, esc_len, esc_wr) THEN
+    PRINT "Err: failed to write ESC 0x"; HEX(esc_reg)
+ENDIF
+
+RETURN
+
+' ********************************************************************
+'
+print_esc_reg_name:
+IF esc_reg = $10 THEN
+    PRINT "(Configured Station Address)"
+ELSEIF esc_reg = $130 THEN
+    PRINT "(AL Status)"
+ELSEIF esc_reg = $134 THEN
+    PRINT "(AL Code)"
+ELSEIF (esc_reg AND $f0f) = $600 THEN
+    PRINT "(FMMU Logical Address)"
+ELSEIF (esc_reg AND $f0f) = $604 THEN
+    PRINT "(FMMU Length)"
+ELSEIF ((esc_reg AND $f0f) = $800) OR ((esc_reg AND $f0f) = $808) THEN
+    PRINT "(SM Logical Address, SM"; ((esc_reg AND $ff) >> 3) [0]; ")"
+ELSEIF ((esc_reg AND $f0f) = $802) OR ((esc_reg AND $f0f) = $80A) THEN
+    PRINT "(SM Length)"
+ELSEIF ((esc_reg AND $f0f) = $804) OR ((esc_reg AND $f0f) = $80c) THEN
+    PRINT "(SM Control Reg)"
+ELSEIF ((esc_reg AND $f0f) = $805) OR ((esc_reg AND $f0f) = $80d) THEN
+    PRINT "(SM Status Reg)"
+ELSEIF ((esc_reg AND $f0f) = $806) OR ((esc_reg AND $f0f) = $80e) THEN
+    PRINT "(SM Activate Reg)"
+ELSEIF ((esc_reg AND $f0f) = $807) OR ((esc_reg AND $f0f) = $80f) THEN
+    PRINT "(SM PDI Control Reg)"
+ELSE
+    PRINT ""
+ENDIF
+RETURN
+
+
+' ****************************************************************************************
+' API Library - CoE Application Layer Access
+'
+
+' ********************************************************************
+'
+read_sdo:
+VR(vr_index) = 0
+IF NOT ETHERCAT($41, slt, slv_addr, sdo_index, sdo_subindex, sdo_type, vr_index) THEN
+    PRINT "Err: failed to read SDO 0x"; HEX(sdo_index); ":"; HEX(sdo_subindex)
+ELSE
+    PRINT "SDO 0x"; HEX(sdo_index); ":"; HEX(sdo_subindex), "= ";
+    IF disp_format = disp_hex THEN
+        PRINT#comms, "0x"; HEX(VR(vr_index))
+    ELSE
+        PRINT#comms, VR(vr_index) [0]
+    ENDIF
+ENDIF
+
+RETURN
+
+' ********************************************************************
+'
+read_co_axis_string:
+
+FOR i = 0 TO sdo_str_len
+    VR(vr_index + i) = 0
+NEXT i
+
+' CO_READ_AXIS(Axis, Index, SubIndex ,Type, Length [,Output])
+IF NOT CO_READ(slv_ax, sdo_index, sdo_subindex, 9, sdo_str_len, vr_index) THEN
+    PRINT#comms, "Err: failed to read string, 0x"; HEX(sdo_index); ":"; sdo_subindex[0]
+ELSE
+    FOR i = 0 TO sdo_str_len
+        IF VR(vr_index + i) = 0 THEN GOTO str_co_done
+        PRINT#comms, CHR(VR(vr_index + i));
+    NEXT i
+str_co_done:
+    PRINT#comms, ""
+ENDIF
+RETURN
+
+' ********************************************************************
+'
+read_sdo_string:
+
+FOR i = 0 TO sdo_str_len
+    VR(vr_index + i) = 0
+NEXT i
+
+'PRINT slt,slv_addr,sdo_index,sdo_subindex,9,sdo_str_len,vr_index
+
+' (slave addr, slot, Index, SubIndex ,Type, Length [,Output])
+IF NOT ETHERCAT($41, slt, slv_addr, sdo_index, sdo_subindex, 9, sdo_str_len, vr_index) THEN
+    PRINT#comms, "Err: failed to read string, 0x"; HEX(sdo_index); ":"; sdo_subindex[0]
+ELSE
+    FOR i = 0 TO sdo_str_len
+
+        IF sdo_str_display = str_chr THEN
+            ' chars
+            IF VR(vr_index + i) = 0 THEN
+                i = sdo_str_len ' exit loop
+            ELSE
+                PRINT#comms, CHR(VR(vr_index + i));
+            ENDIF
+        ELSEIF sdo_str_display = str_int THEN
+            ' ints
+            PRINT#comms, (VR(vr_index + i)); " ";
+        ELSEIF sdo_str_display = str_hex THEN
+            ' hex
+            PRINT#comms, HEX(VR(vr_index + i)); " ";
+        ENDIF
+    NEXT i
+str_sdo_done:
+    PRINT#comms, ""
+ENDIF
+RETURN
+
+' ****************************************************************************************
+' API Library - Display Slave Configuration
+'
+
+' ********************************************************************
+' Read Slave PDI Interrupt Configuration
+'
+display_slv_interrupts:
+GOSUB display_star_line
+
+PRINT#comms, "Display Slave Interrupt Configuration"
+PRINT#comms, "Slave on slot "; slt[0]; " at position "; slv_pos[0]
+PRINT#comms, ""
+
+'DC Sync Out Unit
+PRINT#comms, "Enable DC Sync Out (ESC 0x140)"
+PRINT#comms, "Reg 0x140 and 0x141 are loaded from SII address 0"
+PRINT#comms, "0x141.2 = 1 to Enable DC Sync out unit."
+esc_reg = $140
+esc_len = 2
+GOSUB read_esc
+PRINT#comms, ""
+
+' Sync/Latch PDI Config Register (initialised by SII)
+PRINT#comms, "Sync/Latch PDI Config Register (ESC 0x151)"
+PRINT#comms, "Reg 0x150 and 0x151 are loaded from SII address 1"
+PRINT#comms, "0x151:0,1 = b10 for push pull active high. 0x151:0,1 = b11 for open source active high."
+PRINT#comms, "0x151.2 = 1 for sync0 output"
+PRINT#comms, "0x151.3 = 1 TO enable sync0 mapped to AL event regsiter 0x0220.2, = 0 disabled"
+esc_reg = $151
+esc_len = 1
+GOSUB read_esc
+PRINT#comms, ""
+
+'Pulse Length register (initialised by SII Addr. 2)
+PRINT#comms, "Pulse Length register (ESC 0x982:0x983)"
+PRINT#comms, "Reg 0x982:0x983 are loaded from SII address 2"
+esc_reg = $982
+esc_len = 2
+GOSUB read_esc
+PRINT#comms, ""
+
+'Assign Sync Unit to ECAT or PDI
+PRINT#comms, "Assign Sync Unit to ECAT or PDI (ESC 0x980)"
+PRINT#comms, "Reg 0x980 is set by Master"
+PRINT#comms, "0x980.0 = 0 for ECAT or = 1 for PDI control."
+esc_reg = $980
+esc_len = 1
+GOSUB read_esc
+PRINT#comms, ""
+
+' Set Cyclic Time of Sync 0
+PRINT#comms, "Cyclic Time of Sync"
+PRINT#comms, "Sync0 Cycle Time: Reg 0x9A0:0x9A3 are set by Master"
+esc_reg = $9A0
+esc_len = 4
+GOSUB read_esc
+PRINT#comms, ""
+
+' Set Cyclic Time of Sync 1
+PRINT#comms, "Sync1 Cycle Time: Reg 0x9A4:0x9A7 are set by Master"
+PRINT#comms, "Note that this value is the delay after the Sync0 at which point the sync1 is triggered"
+esc_reg = $9A4
+esc_len = 4
+GOSUB read_esc
+PRINT#comms, ""
+
+' Set Start time of cyclic operation (NB must have been greater than
+' current time, and allow for writing start time and activation)
+PRINT#comms, "DC Start time"
+PRINT#comms, "Reg 0x990:0x997 are set by Master"
+esc_reg = $990
+esc_len = 8
+GOSUB read_esc
+PRINT#comms, ""
+
+'Activate cyclic operation
+PRINT#comms, "Activate Cyclic Operation"
+PRINT#comms, "Reg 0x981 is set by Master"
+PRINT#comms, "Set 0x981.0 to activate Sync signals, and 0x981.1 for Sync 0 and 0x981.2 for Sync1"
+esc_reg = $981
+esc_len = 1
+GOSUB read_esc
+PRINT#comms, ""
+
+PRINT#comms, ""
+
+RETURN
+
+' ********************************************************************
+' Read Slave PDI Startup registers Configuration
+'
+display_slv_startup_registers:
+GOSUB display_star_line
+
+PRINT#comms, "Display Slave Startup Registers "
+PRINT#comms, "Slave on slot "; slt[0]; " at position "; slv_pos[0]
+
+
+PRINT#comms, "ESC DL Status (0x110)"
+PRINT#comms, "Our expected value: 0x5617."
+PRINT#comms, "Our slave was stuck in init mode when value was 0x5615 (PDI Wdog timeout)."
+esc_reg = $110
+esc_len = 2
+GOSUB read_esc
+PRINT#comms, ""
+
+PRINT#comms, "PDI Control (0x140) and ESC Configuration (0x141)"
+esc_reg = $140
+esc_len = 2
+GOSUB read_esc
+PRINT#comms, ""
+
+PRINT#comms, "PDI Configuration (0x150)"
+esc_reg = $150
+esc_len = 1
+GOSUB read_esc
+PRINT#comms, ""
+
+PRINT#comms, "Sync/Latch PDI Configuration (0x151)"
+esc_reg = $151
+esc_len = 2
+GOSUB read_esc
+PRINT#comms, ""
+
+RETURN
+
+
+' ********************************************************************
+' Read Slave DC Configuration Configuration
+'
+display_slv_dc_config:
+GOSUB display_star_line
+
+PRINT#comms, "Display Slave ESC Distributed Clock Configuration"
+PRINT#comms, "Slave on slot "; slt[0]; " at position "; slv_pos[0]
+PRINT#comms, ""
+
+disp_format = disp_hex
+
+'DC Sync Out Unit
+PRINT#comms, "Enable DC Sync Out (ESC 0x140)"
+PRINT#comms, "Reg 0x140 and 0x141 are loaded from SII address 0"
+PRINT#comms, "0x141.2 = 1 to Enable DC Sync out unit."
+esc_reg = $140
+esc_len = 2
+GOSUB read_esc
+PRINT#comms, ""
+
+' Sync/Latch PDI Config Register (initialised by SII)
+PRINT#comms, "Sync/Latch PDI Config Register (ESC 0x151)"
+PRINT#comms, "Reg 0x150 and 0x151 are loaded from SII address 1"
+PRINT#comms, "0x151:0,1 = b10 for push pull active high. 0x151:0,1 = b11 for open source active high."
+PRINT#comms, "0x151.2 = 1 for sync0 output"
+PRINT#comms, "0x151.3 = 1 TO enable sync0 mapped to AL event regsiter 0x0220.2, = 0 disabled"
+esc_reg = $151
+esc_len = 1
+GOSUB read_esc
+PRINT#comms, ""
+
+'Pulse Length register (initialised by SII Addr. 2)
+PRINT#comms, "Pulse Length register (ESC 0x982:0x983)"
+PRINT#comms, "Reg 0x982:0x983 are loaded from SII address 2"
+esc_reg = $982
+esc_len = 2
+GOSUB read_esc
+PRINT#comms, ""
+
+'Assign Sync Unit to ECAT or PDI
+PRINT#comms, "Assign Sync Unit to ECAT or PDI (ESC 0x980)"
+PRINT#comms, "Reg 0x980 is set by Master"
+PRINT#comms, "0x980.0 = 0 for ECAT or = 1 for PDI control."
+esc_reg = $980
+esc_len = 1
+GOSUB read_esc
+PRINT#comms, ""
+
+' Set Cyclic Time of Sync 0
+PRINT#comms, "Cyclic Time of Sync0"
+PRINT#comms, "Sync0 Cycle Time: Reg 0x9A0:0x9A3 are set by Master"
+esc_reg = $9A0
+esc_len = 4
+disp_format = disp_dec
+GOSUB read_esc
+PRINT#comms, ""
+disp_format = disp_hex
+
+' Set Cyclic Time of Sync 1
+PRINT#comms, "Sync1 Cycle Time: Reg 0x9A4:0x9A7 are set by Master"
+PRINT#comms, "Note that this value is the delay after the Sync0 at which point the sync1 is triggered"
+esc_reg = $9A4
+esc_len = 4
+GOSUB read_esc
+PRINT#comms, ""
+
+' Set Start time of cyclic operation (NB must have been greater than
+' current time, and allow for writing start time and activation)
+PRINT#comms, "DC Start time"
+PRINT#comms, "Reg 0x990:0x997 are set by Master"
+esc_reg = $990
+esc_len = 8
+GOSUB read_esc
+PRINT#comms, ""
+
+'Activate cyclic operation
+PRINT#comms, "Activate Cyclic Operation"
+PRINT#comms, "Reg 0x981 is set by Master"
+PRINT#comms, "Set 0x981.0 to activate Sync signals, and 0x981.1 for Sync 0 and 0x981.2 for Sync1"
+esc_reg = $981
+esc_len = 1
+GOSUB read_esc
+PRINT#comms, ""
+
+
+' System Time Difference
+PRINT#comms, "System Time Difference (0x92C:0x92F)"
+esc_reg = $92c
+esc_len = 4
+'disp_format = disp_dec
+GOSUB read_esc
+PRINT#comms, ""
+disp_format = disp_hex
+
+PRINT#comms, ""
+
+RETURN
+
+' ****************************************************************************************
+' Display Slave CoE DC Configuration
+'
+'Data
+
+display_slv_coe_dc_config:
+
+GOSUB display_star_line
+PRINT "ESC Configuration, Slot: "; slt[0]; " Slave pos: "; slv_pos[0], " Slave addr: "; slv_addr[0]
+PRINT#comms, "Display Slave CoE Distributed Clock Configuration"
+PRINT#comms, "Slave on slot "; slt[0]; " at position "; slv_pos[0]
+PRINT#comms, ""
+
+disp_format = disp_dec
+
+PRINT#comms, "Network Cycle Time"
+sdo_index = $1c32
+sdo_subindex = 2
+sdo_type = 4
+GOSUB read_sdo
+PRINT#comms, ""
+
+PRINT#comms, "Slave Min Cycle Time"
+sdo_index = $1c32
+sdo_subindex = 5
+sdo_type = 4
+GOSUB read_sdo
+PRINT#comms, ""
+
+PRINT#comms, "Input Shift Time"
+sdo_index = $1c33
+sdo_subindex = 3
+sdo_type = 4
+GOSUB read_sdo
+PRINT#comms, ""
+
+PRINT#comms, "Output Shift Time"
+sdo_index = $1c32
+sdo_subindex = 3
+sdo_type = 4
+GOSUB read_sdo
+PRINT#comms, ""
+
+PRINT#comms, "Input Calc and Copy Time"
+sdo_index = $1c33
+sdo_subindex = 6
+sdo_type = 4
+GOSUB read_sdo
+PRINT#comms, ""
+
+PRINT#comms, "Output Calc and Copy Time"
+PRINT#comms, "(Min time between slave rx telegram and sync0"
+sdo_index = $1c32
+sdo_subindex = 6
+sdo_type = 4
+GOSUB read_sdo
+PRINT#comms, ""
+
+PRINT#comms, "Input Delay Time"
+sdo_index = $1c33
+sdo_subindex = 9
+sdo_type = 4
+GOSUB read_sdo
+PRINT#comms, ""
+
+PRINT#comms, "Output Delay Time"
+sdo_index = $1c32
+sdo_subindex = 9
+sdo_type = 4
+GOSUB read_sdo
+PRINT#comms, ""
+
+
+PRINT#comms, "Input Sync Error"
+sdo_index = $1c33
+sdo_subindex = 32
+sdo_type = 4
+GOSUB read_sdo
+PRINT#comms, ""
+
+PRINT#comms, "Output Sync Error"
+sdo_index = $1c32
+sdo_subindex = 32
+sdo_type = 4
+GOSUB read_sdo
+PRINT#comms, ""
+
+disp_format = disp_hex
+
+RETURN
+
+
+
+' ****************************************************************************************
+' API Library - Network Information
+
+'Find which slot the ethercat module is in, and record in program global 'slt' variable
+set_ec_slot_number:
+max_slot = 0
+
+IF slt > -1 THEN RETURN
+
+'initialise program global
+slt = -1
+
+IF CONTROL = 464 THEN max_slot = 8
+IF CONTROL = 266 THEN max_slot = 8
+IF CONTROL = 664 OR CONTROL = 665 THEN max_slot = 8
+
+i = 0
+WHILE (i < max_slot) AND (slt = -1)
+    IF COMMSTYPE SLOT(i) = 42 THEN
+        slt = i
+    ELSE
+        i = i + 1
+    ENDIF
+WEND
+
+RETURN
+
+display_each_slave:
+
+GOSUB display_star_line
+
+IF NOT ETHERCAT($3, slt, vr_index) THEN
+    PRINT "Err: failed to read number of slaves on network."
+ELSE
+    num_slaves = VR(vr_index)
+
+    PRINT "Number of Slaves on network:", num_slaves[0]
+    PRINT ""
+
+    FOR i = 0 TO num_slaves - 1
+        PRINT "Slave "; i[0]
+
+        ec_slave_pos = i
+        GOSUB get_slave_addr
+        IF (ec_slave_addr > -1) THEN PRINT "Configured Address: "; ec_slave_addr[0]
+
+        GOSUB get_slave_axis
+        IF (ec_slave_axis > -1) THEN
+            PRINT "Axis Number: "; ec_slave_axis[0]
+        ELSE
+            PRINT "Axis Number:  no axis assigned."
+        ENDIF
+
+        PRINT ""
+    NEXT i
+
+
+ENDIF
+
+
+RETURN
+
+
+get_slave_addr:
+ec_slave_addr = -1
+IF NOT ETHERCAT($4, slt, ec_slave_pos, vr_index) THEN
+    PRINT "Err: failed to get slave address, for slot "; slt[0]; ", slave at pos "; ec_slave_pos[0]
+ELSE
+    ec_slave_addr = VR(vr_index)
+ENDIF
+
+RETURN
+
+get_slave_axis:
+ec_slave_axis = -1
+IF NOT ETHERCAT($5, slt, ec_slave_pos, vr_index) THEN
+    PRINT "Err: failed to get slave axis, for slot "; slt[0]; ", slave at pos "; ec_slave_pos[0]
+ELSE
+    ec_slave_axis = VR(vr_index)
+ENDIF
+
+RETURN
+
+
+
+display_servo_period:
+PRINT "Controller Servo Period:", SERVO_PERIOD[0]
+RETURN
+
+display_slot:
+PRINT "EtherCAT Module Slot Number:", slt[0]
+RETURN
+
+display_num_slaves:
+IF NOT ETHERCAT($3, slt, vr_index) THEN
+    PRINT "Err: failed to read number of slaves on network."
+ELSE
+    PRINT "Number of Slaves on network:", VR(vr_index) [0]
+ENDIF
+
+RETURN
+
+
+display_nw_state:
+IF NOT ETHERCAT($6, slt, vr_index) THEN
+    PRINT "Err: failed to read network state."
+ELSE
+    PRINT "Network ESM state is:    ";
+    IF VR(vr_index) = 0 THEN
+        PRINT "Init"
+    ELSEIF VR(vr_index) = 1 THEN
+        PRINT "Pre-operational"
+    ELSEIF VR(vr_index) = 2 THEN
+        PRINT "Safe-operational"
+    ELSEIF VR(vr_index) = 3 THEN
+        PRINT "Operational"
+    ELSE
+        PRINT "Unknown state"
+    ENDIF
+ENDIF
+
+RETURN
+
+
+
+' ****************************************************************************************
+' Display Network Configuration
+'
+display_nw_config:
+
+GOSUB display_star_line
+PRINT "Network Configuration"
+PRINT ""
+
+GOSUB display_servo_period
+GOSUB display_slot
+GOSUB display_nw_state
+GOSUB display_num_slaves
+
+PRINT ""
+PRINT "EtherCAT Network Information"
+PRINT ""
+ETHERCAT($87, slt)
+
+PRINT ""
+PRINT "Description of information above:"
+PRINT "EtherCAT Configuration (slot)"
+PRINT "Slave information: product name : pos on network, alias (switch) address, configured address"
+PRINT "For axes = (axis number), for IO = addr:len, with inputs then outputs, digital then analogue"
+PRINT ""
+
+RETURN
+
+' ****************************************************************************************
+' API Library - Network Debug
+
+run_debug_restart:
+ETHERCAT($d8, slt, 1)
+ETHERCAT(0, slt)
+
+RETURN
+
+
+
+' ****************************************************************************************
+' API Library - Controller Error Parameters
+
+display_system_err_state:
+'Notes -
+' if an error is raised through the master (Ecmaster_RaiseError), we will set the
+' the error flag 'system error configuration station' (0x000200)
+' if an error is raised through the slave (Ecmaster_ErrorRaised), we will set the
+' the error flag 'system error unit - station error' (0x1000000)
+
+GOSUB display_star_line
+PRINT "System Error"
+PRINT ""
+
+
+IF SYSTEM_ERROR = 0 THEN
+    PRINT "There are no current system errors. ";
+    PRINT "System Error Value: 0x"; HEX(SYSTEM_ERROR)
+ELSE
+
+    PRINT "System Error Value: 0x"; HEX(SYSTEM_ERROR)
+
+    IF SYSTEM_ERROR AND $000001 THEN PRINT "System Error - Sytem RAM"
+    IF SYSTEM_ERROR AND $000002 THEN PRINT "System Error - System Battery"
+    IF SYSTEM_ERROR AND $000002 THEN PRINT "System Error - invalid module"
+
+    IF SYSTEM_ERROR AND $000100 THEN PRINT "System Error Configuration - Unit"
+    IF SYSTEM_ERROR AND $000200 THEN PRINT "System Error Configuration - Station"
+
+    IF SYSTEM_ERROR AND $010000 THEN PRINT "System Error Unit - Unit Lost"
+    IF SYSTEM_ERROR AND $020000 THEN PRINT "System Error Unit - Terminator Lost"
+    IF SYSTEM_ERROR AND $040000 THEN PRINT "System Error Unit - Station Lost"
+    IF SYSTEM_ERROR AND $080000 THEN PRINT "System Error Unit - invalid"
+    IF SYSTEM_ERROR AND $100000 THEN PRINT "System Error Unit - station error (ethercat station error flag)"
+
+ENDIF
+
+RETURN
+
+display_unit_err_state:
+
+GOSUB display_star_line
+PRINT "Unit Error (identifies which module/slot has raised a system error."
+PRINT ""
+
+IF UNIT_ERROR = 0 THEN
+    PRINT "There are no current unit errors. ";
+    PRINT "Unit Error Value: 0x"; HEX(UNIT_ERROR)
+ELSE
+
+    PRINT "Unit Error Value: 0x"; HEX(UNIT_ERROR)
+
+    mask = 1
+    FOR i = 0 TO 15
+        IF (UNIT_ERROR AND mask) THEN PRINT "Unit Error, on slot "; i[0]
+        mask = mask * 2
+    NEXT i
+
+ENDIF
+
+RETURN
+
+' ****************************************************************************************
+' Display system slave error registers
+
+display_system_slv_errs:
+
+GOSUB display_star_line
+PRINT#comms, "Display Network Slave Status Registers"
+
+IF NOT ETHERCAT($3, slt, vr_index) THEN
+    PRINT "Err: reading slave ESC status registers - failed to read number of slaves on network."
+ELSE
+    num_slvs = VR(vr_index)
+ENDIF
+
+orig_slv_pos = slv_pos
+
+'For each slave in the network
+FOR j = 0 TO num_slvs - 1
+
+    slv_pos = j
+
+    PRINT#comms, ""
+    PRINT#comms, "Slave on slot "; slt[0]; " at position "; slv_pos[0]
+
+    '
+    esc_reg = $300
+    esc_len = 1
+    FOR i = 0 TO 3
+        PRINT#comms, ""
+        PRINT#comms, "Port", i[0]
+        PRINT#comms, "Invalid Frame Counter"
+        GOSUB read_esc
+        esc_reg = esc_reg + 1
+
+        PRINT#comms, "Rx Error Counter"
+        GOSUB read_esc
+        esc_reg = esc_reg + 1
+
+    NEXT i
+
+
+    '
+    esc_reg = $308
+    esc_len = 1
+    FOR i = 0 TO 3
+        PRINT#comms, ""
+        PRINT#comms, "Port", i[0]
+        PRINT#comms, "Forwarded Rx Error Counter"
+        GOSUB read_esc
+        esc_reg = esc_reg + 1
+    NEXT i
+
+    '
+    esc_reg = $30C
+    esc_len = 1
+    PRINT#comms, ""
+    PRINT#comms, "ECAT Processing Unit Error Counter"
+    GOSUB read_esc
+
+    '
+    esc_reg = $30D
+    esc_len = 1
+    PRINT#comms, ""
+    PRINT#comms, "PDI Error Counter"
+    GOSUB read_esc
+
+    esc_reg = $30E
+    esc_len = 1
+    PRINT#comms, ""
+    PRINT#comms, "SPI/uC PDI Error Counter"
+    GOSUB read_esc
+
+    '
+    esc_reg = $310
+    esc_len = 1
+    FOR i = 0 TO 3
+        PRINT#comms, ""
+        PRINT#comms, "Port", i[0]
+        PRINT#comms, "Lost Link Counter"
+        GOSUB read_esc
+        esc_reg = esc_reg + 1
+    NEXT i
+
+NEXT j
+
+slv_pos = orig_slv_pos
+
+RETURN
+
+' ****************************************************************************************
+' API Library - Error Log
+
+display_ec_err_log:
+num_errs = 0
+
+GOSUB display_star_line
+PRINT "EtherCAT Error Log for slot "; slt[0]
+PRINT ""
+
+' Get error log entry count
+IF (ETHERCAT($d6, slt, vr_index)) THEN
+    num_errs = VR(vr_index)
+    PRINT "Error log entry count: ", num_errs[0]
+    PRINT""
+ELSE
+    PRINT "Error: failed to read error log entry count, slot: "; slt[0]
+ENDIF
+
+
+IF num_errs = 0 THEN
+    PRINT "There are no EtherCAT errors logged for slot", slt[0]
+
+ELSE
+    FOR index = 0 TO num_errs - 1
+
+        ETHERCAT($d5, slt, vr_index, index)
+        PRINT "Error Log Entry"
+        PRINT "Index: "; index[0]
+
+        PRINT "Slot: "; VR(vr_index) [0]
+        vr_index = vr_index + 1
+
+        PRINT "Configured Address: "; VR(vr_index) [0]
+        vr_index = vr_index + 1
+
+        err_code = VR(vr_index)
+        vr_index = vr_index + 1
+        PRINT "Code: 0x"; HEX(err_code); " : ";
+        GOSUB display_err_log_err_code_name
+
+        PRINT "Error Count: "; VR(vr_index) [0]
+        vr_index = vr_index + 1
+
+        data_len = VR(vr_index)
+        PRINT "Additional Data Len: "; data_len[0]
+
+        IF data_len THEN
+            FOR i = 1 TO data_len - 1
+                PRINT "0x"; HEX(VR(vr_index + i)); " : ";
+            NEXT i
+            PRINT "0x"; HEX(VR(vr_index + i))
+        ENDIF
+
+        PRINT ""
+
+
+    NEXT index
+ENDIF
+
+RETURN
+
+
+display_err_log_err_code_name:
+
+' Note this is not an exhaustive list. Please see EcGlobal.h for complete error list.
+
+IF err_code = $1 THEN
+    PRINT "General EtherCAT error."
+ELSEIF err_code = $9 THEN
+    PRINT "Not ready - EtherCAT protocol not ready and hence unable to complete requested operation."
+ELSEIF err_code = $a THEN
+    PRINT "Busy - EtherCAT protocol busy and unable to complete requested operation."
+ELSEIF err_code = $c THEN
+    PRINT "Out of memory - internal firmware memory limitation"
+ELSEIF err_code = $e THEN
+    PRINT "Device not found (a general error code.)"
+ELSEIF err_code = $12 THEN
+    PRINT "Timeout"
+ELSEIF err_code = $1F THEN
+    PRINT "Invalid address set on slave switches."
+ELSEIF err_code = $21 THEN
+    PRINT "Exceeded maximum permitted number of axes on network (check enabled feature codes.)"
+ELSEIF err_code = $25 THEN
+    PRINT "Not in Operational mode - unable to complete requested operation as not in operational mode."
+ELSEIF err_code = $26 THEN
+    PRINT "Unable to find slave configuration information. Check MC_CONFIG for DRIVE_MODE/DRIVE_PROFILE setup."
+ELSEIF err_code = $27 THEN
+    PRINT "Startup timeout error"
+
+ELSEIF err_code = $30 THEN
+    PRINT "Slave Error."
+ELSEIF err_code = $31 THEN
+    PRINT "Slave timeout Error."
+
+    'Message Errors
+ELSEIF err_code = $50 THEN
+    PRINT "Message error - invalid wk counter value received."
+ELSEIF err_code = $54 THEN
+    PRINT "Message error - rx telegram missed."
+
+    'Slave Node Errors
+ELSEIF err_code = $60 THEN
+    PRINT "Slave error - wdog error (failed to receive back transmit telegram)"
+ELSEIF err_code = $61 THEN
+    PRINT "Slave error - working counter (wkcnt) error"
+ELSEIF err_code = $62 THEN
+    PRINT "Slave error - error flag set in status word"
+ELSEIF err_code = $63 THEN
+    PRINT "Slave error - invalid axis number"
+ELSEIF err_code = $64 THEN
+    PRINT "Slave error - slave not found"
+ELSEIF err_code = $65 THEN
+    PRINT "Slave error - no timing data available for slave"
+ELSEIF err_code = $66 THEN
+    PRINT "Slave error - emergency message received"
+
+    'Master Errors
+ELSEIF err_code = $10001 THEN
+    PRINT "Master error - general master error"
+ELSEIF err_code = $10002 THEN
+    PRINT "Master error - duplicated slave node addressing"
+ELSEIF err_code = $10003 THEN
+    PRINT "Master error - duplicated slave axis number assignment"
+ELSEIF err_code = $10004 THEN
+    PRINT "Master error - number of slave axes exceeds permitted number (need more FECs)"
+ELSEIF err_code = $10005 THEN
+    PRINT "Master error - number of slave axes exceeds controller maximum"
+ELSEIF err_code = $10006 THEN
+    PRINT "Master error - no slaves on the network"
+ELSEIF err_code = $10007 THEN
+    PRINT "Master error - invalid node address for axis"
+ELSEIF err_code = $10008 THEN
+    PRINT "Master error - slave axis number already assigned."
+ELSEIF err_code = $10009 THEN
+    PRINT "Master error - general axis assignment error."
+ELSEIF err_code = $1000A THEN
+    PRINT "Master error - invalid drive profile (value assigned to DRIVE_PROFILE is not supported)"
+ELSEIF err_code = $1000B THEN
+    PRINT "Master error - slave failed to change state."
+ELSEIF err_code = $1000C THEN
+    PRINT "Master error - protocol is not running."
+ELSEIF err_code = $1000D THEN
+    PRINT "Master error - invalid slot number."
+
+ELSE
+    PRINT "Unknown error code 0x"; HEX(err_code); ". Please contract Trio for assistance."
+ENDIF
+
+
+RETURN
+
+
+' ****************************************************************************************
+' API Library - MDP Handlers
+
+display_all_sdo_subindices:
+
+sdo_subindex = 0
+sdo_type = 4
+GOSUB read_sdo
+
+num_sub_indices1 = VR(vr_index)
+
+IF (num_sub_indices1 > 0) THEN
+    FOR i = 1 TO num_sub_indices1
+        sdo_subindex = i
+        sdo_type = 4
+        GOSUB read_sdo
+    NEXT i
+ENDIF
+
+
+RETURN
+
+display_all_sdo:
+
+' Find number of sub-indices
+sdo_subindex = 0
+sdo_type = 4
+GOSUB read_sdo
+
+num_sub_indices2 = VR(vr_index)
+
+' read all sub-indices
+FOR j = 1 TO num_sub_indices2
+    sdo_subindex = j
+    sdo_type = 4
+    GOSUB read_sdo
+
+    IF VR(vr_index) <> 0 THEN
+        temp = sdo_index
+        sdo_index = VR(vr_index)
+        GOSUB display_all_sdo_subindices
+        sdo_index = temp
+    ENDIF
+NEXT j
+
+
+RETURN
+
+display_pdo_profile:
+
+GOSUB display_star_line
+PRINT "EtherCAT MDP Profile For slave at addr "; slv_addr[0]; " on slot "; slt[0]
+PRINT ""
+
+sdo_index = $1c12
+PRINT "Slave RxPDO Set:"
+GOSUB display_all_sdo
+
+PRINT ""
+PRINT "Slave TxPDO Set:"
+sdo_index = $1c13
+GOSUB display_all_sdo
+
+RETURN
+
+' Testing -
+' 1. Omron Grt1 - 11th Dec 2013 - would only respond TO 0xf000, 0xf050 nand 0xf060
+display_mdp_config_area:
+
+GOSUB display_star_line
+PRINT "EtherCAT MDP Configuration Area For slave at addr "; slv_addr[0]; " on slot "; slt[0]
+PRINT ""
+
+sdo_index = $f000
+PRINT "Modular Device Profile:"
+GOSUB display_all_sdo_subindices
+
+sdo_index = $f010
+PRINT "Module Profile List:"
+GOSUB display_all_sdo_subindices
+
+sdo_index = $f020
+PRINT "Configured Address List:"
+GOSUB display_all_sdo_subindices
+
+sdo_index = $f030
+PRINT "Configured Ident Module List:"
+GOSUB display_all_sdo_subindices
+
+sdo_index = $f040
+PRINT "Detected Address List:"
+GOSUB display_all_sdo_subindices
+
+sdo_index = $f050
+PRINT "Detected Module Ident List:"
+GOSUB display_all_sdo_subindices
+
+sdo_index = $f060
+PRINT "Participation Status (omron specific?):"
+GOSUB display_all_sdo_subindices
+
+RETURN
+
+
+display_murr_sdo:
+
+GOSUB display_star_line
+PRINT "ESC Configuration, Slot: "; slt[0]; " Slave pos: "; slv_pos[0], " Slave addr: "; slv_addr[0]
+
+slv_addr = 13093
+
+FOR i = 0 TO 5
+
+    sdo_index = $8000 + i
+    sdo_subindex = 32
+    sdo_type = 7
+    GOSUB read_sdo
+
+    sdo_subindex = 33
+    sdo_type = 7
+    GOSUB read_sdo
+
+NEXT i
+
+RETURN
+
+
+
+' ****************************************************************************************
+' API Library - SoE Handlers
+'
+
+configure_soe_profile:
+
+GOSUB display_star_line
+PRINT "EtherCAT SoE Profile For slave at addr "; slv_addr[0]; " on slot "; slt[0]
+PRINT ""
+
+soe_index = 16
+PRINT "Telegram Type:"
+'GOSUB write_soe_idn_array
+
+RETURN
+
+
+
+display_soe_profile:
+
+GOSUB display_star_line
+PRINT "EtherCAT SoE Profile For slave at addr "; slv_addr[0]; " on slot "; slt[0]
+PRINT ""
+
+soe_index = 1
+soe_type = 4
+PRINT "Control unit cycle time"
+GOSUB read_soe
+
+soe_index = 2
+soe_type = 4
+PRINT "Communication cycle time"
+GOSUB read_soe
+
+soe_index = 15
+soe_type = 4
+PRINT "Telegram Type:"
+GOSUB read_soe
+
+soe_index = 11
+soe_type = 4
+PRINT "Class 1 Diagnostics:"
+GOSUB read_soe
+
+
+soe_index = 16
+soe_idn_array_len = 40
+PRINT "Slave AT Telegram (TxPdo):"
+GOSUB read_soe_idn_array
+
+PRINT ""
+PRINT "Master MDT Telegram (RxPDO):"
+soe_index = 24
+soe_idn_array_len = 40
+GOSUB read_soe_idn_array
+
+RETURN
+
+
+' ********************************************************************
+'
+read_soe:
+VR(vr_index) = 0
+IF NOT ETHERCAT($51, slt, slv_addr, soe_index, soe_type, vr_index) THEN
+    PRINT "Err: failed to read SoE IDN "; soe_index[0]
+ELSE
+    PRINT "SoE IDN "; soe_index[0], "= ";
+    IF disp_format = disp_hex THEN
+        PRINT#comms, "0x"; HEX(VR(vr_index))
+    ELSE
+        PRINT#comms, VR(vr_index) [0]
+    ENDIF
+ENDIF
+
+RETURN
+
+' ********************************************************************
+'
+write_soe:
+IF NOT ETHERCAT($50, slt, slv_addr, soe_index, soe_type, -1, soe_wr) THEN
+    PRINT "Err: failed to write SoE IDN "; soe_index[0]; ", value"; VR(vr_index) [0]
+ELSE
+    PRINT "Wrote SoE IDN "; soe_index[0], ", value ";
+    IF disp_format = disp_hex THEN
+        PRINT#comms, "0x"; HEX(VR(vr_index))
+    ELSE
+        PRINT#comms, VR(vr_index) [0]
+    ENDIF
+ENDIF
+
+RETURN
+
+' ********************************************************************
+'
+read_soe_idn_array:
+
+FOR i = 0 TO soe_idn_array_len
+    VR(vr_index + i) = 0
+NEXT i
+
+' (slave addr, slot, IDN, Type, Length [,Output])
+IF NOT ETHERCAT($51, slt, slv_addr, soe_index, 11, soe_idn_array_len, vr_index) THEN
+    PRINT#comms, "Err: failed to read SoE IDN array "; soe_index[0]
+ELSE
+    FOR i = 0 TO soe_idn_array_len
+
+'        IF soe_str_display = str_chr THEN
+'            ' chars
+'            IF VR(vr_index+i) = 0 THEN GOTO str_soe_idn_array_done
+'            PRINT#comms,CHR(VR(vr_index+i));
+'        ELSEIF sdo_str_display = str_int THEN
+        ' ints
+        PRINT#comms, (VR(vr_index + i)) [0]; " ";
+'        ELSEIF sdo_str_display = str_hex THEN
+        ' hex
+'            PRINT#comms,HEX(VR(vr_index+i));" ";
+'        ENDIF
+    NEXT i
+str_soe_idn_array_done:
+    PRINT#comms, ""
+ENDIF
+RETURN
+
+
+' ********************************************************************
+' Display network slaves
+'
+display_network_slaves:
+
+
+PRINT#comms, "Display Network Slaves"
+
+' Find total number of slaves.
+IF NOT ETHERCAT($3, slt, vr_index) THEN
+    PRINT#comms, "Err: failed to read number of slaves on network."
+    STOP
+ELSE
+    num_slaves = VR(vr_index)
+
+    PRINT#comms, "Number of Slaves on network:", num_slaves[0]
+    PRINT#comms, ""
+ENDIF
+
+' Display info on each slave.
+FOR slv_pos = 0 TO num_slaves - 1
+
+    PRINT#comms, "Slave at pos", slv_pos[0]
+
+    ' Check Vendor ID
+    sii_addr = $08
+    sii_len = 4
+    GOSUB get_sii
+    PRINT#comms, "VID 0x"; HEX(VR(vr_index))
+
+    ' Check product code
+    sii_addr = $0A
+    sii_len = 4
+    GOSUB get_sii
+    PRINT#comms, "PID 0x"; HEX(VR(vr_index))
+
+    ' Check serial number
+    sii_addr = $0E
+    sii_len = 4
+    GOSUB get_sii
+    PRINT#comms, "SN  "; VR(vr_index) [0]
+
+    esc_reg = $10
+    esc_len = 2
+    GOSUB get_esc
+    PRINT#comms, "Configured Station Addr", VR(vr_index) [0]
+
+    esc_reg = $12
+    esc_len = 2
+    GOSUB get_esc
+    PRINT#comms, "Configured Alias Addr", VR(vr_index) [0]
+
+    PRINT#comms, ""
+
+NEXT slv_pos
+
+RETURN
+
+
+' ********************************************************************
+' Check expected drive in correct position.
+'
+verify_network_slaves:
+
+' Constants
+CONSTANT "max_slaves", 32
+CONSTANT "vid_index", 0
+CONSTANT "pid_index", 1
+CONSTANT "sn_index", 2
+
+vid = $66f
+pid = $51505001
+sn = $12090004
+
+'Data
+DIM slaves AS INTEGER(32, 3)
+
+' Network information
+slaves(0, vid_index) = vid
+slaves(0, pid_index) = pid
+slaves(0, sn_index) = sn
+
+PRINT#comms, "Verify Network Slaves"
+
+' Find total number of slaves.
+IF NOT ETHERCAT($3, slt, vr_index) THEN
+    PRINT#comms, "Err: failed to read number of slaves on network."
+    STOP
+ELSEIF VR(vr_index) > max_slaves THEN
+    PRINT#comms, "Err: too many slaves on network."
+    STOP
+ELSE
+    num_slaves = VR(vr_index)
+
+    PRINT#comms, "Number of Slaves on network:", num_slaves[0]
+    PRINT#comms, ""
+ENDIF
+
+' Check each slave.
+FOR slv_pos = 0 TO num_slaves - 1
+
+    ' Check Vendor ID
+    sii_addr = $08
+    sii_len = 4
+    GOSUB get_sii
+
+    IF VR(vr_index) <> slaves(slv_pos, vid_index) THEN
+        ' Not expected vendor ID
+        PRINT#comms, "Error. Slave at pos", slv_pos[0]; "."
+        PRINT#comms, "Expected VID 0x"; HEX(slaves(slv_pos, vid_index)), "Read 0x", HEX(VR(vr_index))
+    ELSE
+
+        ' Check product code
+        sii_addr = $0A
+        sii_len = 4
+        GOSUB get_sii
+
+        IF VR(vr_index) <> slaves(slv_pos, pid_index) THEN
+            ' Not expected product code
+            PRINT#comms, "Error. Slave at pos", slv_pos[0]; "."
+            PRINT#comms, "Expected PID 0x"; HEX(slaves(slv_pos, pid_index)), "Read 0x", HEX(VR(vr_index))
+
+        ELSE
+            ' Check serial number
+            sii_addr = $0E
+            sii_len = 4
+            GOSUB get_sii
+
+            IF VR(vr_index) <> slaves(slv_pos, sn_index) THEN
+                ' Not expected serial number.
+                PRINT#comms, "Error. Slave at pos", slv_pos[0]; "."
+                PRINT#comms, "Expected serial number "; slaves(slv_pos, pid_index), "Read ", VR(vr_index) [0]
+
+            ELSE
+                ' All OK
+                PRINT#comms, "Succesfully verified slave at pos", slv_pos[0]
+                PRINT#comms, "VID 0x"; HEX(slaves(slv_pos, vid_index))
+                PRINT#comms, "PID 0x"; HEX(slaves(slv_pos, pid_index))
+                PRINT#comms, "SN  "; slaves(slv_pos, sn_index) [0]
+                PRINT#comms, ""
+
+            ENDIF
+
+        ENDIF
+    ENDIF
+
+NEXT slv_pos
+
+RETURN
+
+
+' ********************************************************************
+' Switch  Trio Stepper slice into FPGA update mode.
+'
+fpga_test:
+
+CONSTANT "axes_per_slave", 3
+
+' Initialise all profiles.
+FOR i = 0 TO 128
+    NODE_PROFILE(slt, i) = 0
+NEXT i
+
+'Startup network into normal operations
+inoperational = FALSE
+WHILE NOT inoperational
+    PRINT#comms, "Startup EtherCAT network"
+    ETHERCAT(0, slt)
+    IF NOT ETHERCAT($6, slt, vr_index) THEN
+        PRINT#comms, "Err: failed to read EtherCAT network status."
+        GOTO fpga_test_exit
+    ELSE
+        IF (VR(vr_index)) = 3 THEN
+            PRINT#comms, "Normal operations startup successful"
+            inoperational = TRUE
+        ELSE
+            WA(1000)
+        ENDIF
+    ENDIF
+WEND
+PRINT#comms, ""
+
+' Scan network to find P371 stepper-encoder slices.
+
+' Find total number of slaves.
+IF NOT ETHERCAT($3, slt, vr_index) THEN
+    PRINT "Err: failed to read number of slaves on network."
+    GOTO fpga_test_exit
+ELSE
+    num_slaves = VR(vr_index)
+
+    PRINT "Number of Slaves on network:", num_slaves[0]
+    PRINT ""
+ENDIF
+
+' Check each slave and update node_profile if necessary.
+FOR slv_pos = 0 TO num_slaves - 1
+    PRINT#comms, "SII Configuration, Slot: "; slt[0]; " Slave pos: "; slv_pos[0]
+
+    ' Check Vendor ID
+    sii_addr = $08
+    sii_len = 4
+    GOSUB get_sii
+
+    IF VR(vr_index) <> $2de THEN
+        ' Not a Trio unit
+    ELSE
+
+        ' Check product code
+        sii_addr = $0A
+        sii_len = 4
+        GOSUB get_sii
+
+        IF VR(vr_index) <> 375 THEN
+            ' Not an P375 stepper encoder
+
+        ELSE
+            PRINT#comms, "P375 Stepper slave at pos", slv_pos[0]
+
+            'Reset profile ID
+            PRINT#comms, "Change NODE_PROFILE for to 10"
+            NODE_PROFILE(slt, slv_pos) = 10
+
+            'Reset slave into firmware upgrade mode.
+            PRINT#comms, "Reset slave into firmware update mode "
+
+            IF NOT ETHERCAT($5, slt, slv_pos, vr_index) THEN
+                PRINT#comms, "Err: failed to read slave's axis number."
+                STOP
+            ELSE
+                ax = VR(vr_index)
+
+                'Request drive state change
+                DRIVE_CW_MODE AXIS(ax) = 1
+                DRIVE_CONTROLWORD AXIS(ax) = $802f
+
+                DRIVE_CW_MODE AXIS(ax + 1) = 1
+                DRIVE_CONTROLWORD AXIS(ax + 1) = $402f
+
+                DRIVE_CW_MODE AXIS(ax + 2) = 1
+                DRIVE_CONTROLWORD AXIS(ax + 2) = $C02f
+
+                'Verify drive state change or timeout
+                done = FALSE
+                TICKS = 1000
+
+                WHILE NOT done AND TICKS > 0
+
+                    IF DRIVE_STATUS AXIS(ax) = $8000 AND _
+                            DRIVE_STATUS AXIS(ax + 1) = $4000 AND _
+                            DRIVE_STATUS AXIS(ax + 2) = $C000 THEN
+                        done = TRUE
+                    ENDIF
+
+                WEND
+
+                ' Re-enable firmware control of control-word
+                DRIVE_CW_MODE AXIS(ax) = 0
+                DRIVE_CW_MODE AXIS(ax + 1) = 0
+                DRIVE_CW_MODE AXIS(ax + 2) = 0
+
+                IF done THEN
+                    PRINT#comms, "Stepper Slave in firmware update mode."
+                ELSE
+                    PRINT#comms, "Error: failed to reset Stepper Slave into firmware update mode."
+                    PRINT#comms, "(Drive did not acknowledge request to change mode.)"
+                    GOTO fpga_test_exit
+                ENDIF
+            ENDIF
+
+
+        ENDIF
+    ENDIF
+
+NEXT slv_pos
+
+
+'Restart network, using FPGA update configuration.
+inoperational = FALSE
+WHILE NOT inoperational
+    ETHERCAT(0, slt)
+    IF NOT ETHERCAT($6, slt, vr_index) THEN
+        PRINT#comms, "Err: failed to read EtherCAT network status."
+        GOTO fpga_test_exit
+    ELSE
+        IF (VR(vr_index)) = 3 THEN
+            PRINT#comms, "FPGA reprogram startup successful."
+            inoperational = TRUE
+        ELSE
+            WA(1000)
+        ENDIF
+    ENDIF
+WEND
+PRINT#comms, ""
+
+
+fpga_test_exit:
+
+RETURN
+
+
+
+

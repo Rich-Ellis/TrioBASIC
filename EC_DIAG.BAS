@@ -1,10 +1,13 @@
 ' *************************************************************
 ' EtherCAT Diagnostics Program
 '
-' Revision History:
-' 12th August 2019  - Revised to use EtherCAT library file.
-' 13th October 2015 - initial issue
+' Note - this program requires the EC_LIB Ethercat library file.
 '
+' Revision History:
+' 13 Oct 2015 - initial issue
+' 12 Aug 2019 - Revised to use EtherCAT library file.
+'  6 Mar 2020 - Read andd display SM Watchdog configuration.
+' 19 Mar 2020 - added call to ec_display_nw_telegram_stats
 '
 
 DIM m_slt AS INTEGER = -1
@@ -45,7 +48,7 @@ GOSUB display_nw_topology
 'Read and display particular CoE object from all slaves on network.
 '(Note that particular slave can be chosen by changing pos from -1 to
 ' pos of slave required.)
-ec_display_coe_value(m_slt,-1,$6040,0,4)
+'ec_display_coe_value(m_slt,-1,$6040,0,4)
 
 'ec_display_system_and_slv_errs(m_slt)
 
@@ -55,10 +58,13 @@ ec_display_coe_value(m_slt,-1,$6040,0,4)
 'ec_display_slv_dc_status(1,0)
 
 ' Display network link errors.
-'GOSUB display_nw_link_errs
+GOSUB display_nw_link_errs
+
+'Display SM status
+ec_display_sm_watchdog(slt)
 
 ' Display Trio firmware debug information
-'display_nw_debug_stats(1)
+ec_display_nw_telegram_stats(slt)
 
 STOP
 
@@ -68,34 +74,34 @@ STOP
 ' Note that m_slt is left as -1.
 '
 display_all_nws:
-    ' Get EtherCAT comms interface slot.
-    m_slt = ec_get_next_slot(-1)
-    WHILE m_slt > -1
-        ec_display_nw_config(m_slt)
-        m_slt = ec_get_next_slot(m_slt)
-    WEND
+' Get EtherCAT comms interface slot.
+m_slt = ec_get_next_slot(-1)
+WHILE m_slt > -1
+    ec_display_nw_config(m_slt)
+    m_slt = ec_get_next_slot(m_slt)
+WEND
 RETURN
-    
+
 ' ************************************************************
 ' Display network link errors.
 '
 display_nw_link_errs:
-    
-    'Display current link lost counters to the output stream.
-    ec_display_port_link_lost_cntrs(m_slt)
-    
-    'Reset all counters to zero.
-    ec_reset_all_link_cntrs(m_slt)
-    
+
+'Display current link lost counters to the output stream.
+ec_display_port_link_lost_cntrs(m_slt)
+
+'Reset all counters to zero.
+ec_reset_all_link_cntrs(m_slt)
+
 RETURN
-    
+
 ' ************************************************************
 ' Display network topology
 ' Provides ability to verify network layout, and slaves
 ' present.
 display_nw_topology:
-    
-    ' Display nw topology and link status for each slave on network.
-    ec_display_nw_topology(m_slt)
-    
+
+' Display nw topology and link status for each slave on network.
+ec_display_nw_topology(m_slt)
+
 RETURN

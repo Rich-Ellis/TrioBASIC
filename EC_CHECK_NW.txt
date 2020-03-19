@@ -1,0 +1,207 @@
+' *************************************************************
+' EtherCAT Slave Position Verification Program
+'
+' Date: 02nd Dec 2016
+'
+' Description
+' The function 'display_network_slaves' can be used during
+' commissioning to view the devices on the EtherCAT network.
+' The function 'verify_network_slaves' will check the vendor code,
+' product code and serial number of all devices found on the network
+' can compare against the expected values stored in the array 'slaves'.
+' Any errors and/or the final pass/fail message are written to the
+' 'comms' port.
+
+
+' Program Constants
+'comms = 5
+slt = 0
+vr_index = 100
+
+'Program Data
+
+
+'begin
+
+' Display existing network (can be used durnig commissioning.)
+GOSUB display_network_slaves
+
+' Check network is as expected, pass/fail messages written to 'comms'
+GOSUB verify_network_slaves
+
+STOP
+
+
+' ********************************************************************
+' Library
+'
+
+' ********************************************************************
+'
+get_sii:
+' Print error if fails to read value, otherwise return in vr.
+IF NOT ETHERCAT($61,slt,slv_pos,sii_addr,sii_len,vr_index) THEN
+    PRINT "Err: failed to read SII 0x";HEX(sii_addr)
+ENDIF
+
+RETURN
+
+' ********************************************************************
+'
+get_esc:
+VR(vr_index) = 0
+IF NOT ETHERCAT($31,slt,slv_pos,esc_reg,esc_len,vr_index) THEN
+    PRINT "Err: failed to read ESC 0x";HEX(esc_reg)
+ENDIF
+RETURN
+
+
+' ********************************************************************
+' Display network slaves
+'
+display_network_slaves:
+
+
+PRINT#comms,"Display Network Slaves"
+
+' Find total number of slaves.
+IF NOT ETHERCAT($3,slt,vr_index) THEN
+    PRINT#comms,"Err: failed to read number of slaves on network."
+    STOP
+ELSE
+    num_slaves = VR(vr_index)
+
+    PRINT#comms,"Number of Slaves on network:",num_slaves[0]
+    PRINT#comms,""
+ENDIF
+
+' Display info on each slave.
+FOR slv_pos = 0 TO num_slaves - 1
+
+    PRINT#comms,"Slave at pos",slv_pos[0]
+
+    ' Check Vendor ID
+    sii_addr = $08
+    sii_len = 4
+    GOSUB get_sii
+    PRINT#comms,"VID 0x";HEX(VR(vr_index))
+
+    ' Check product code
+    sii_addr = $0A
+    sii_len = 4
+    GOSUB get_sii
+    PRINT#comms,"PID 0x";HEX(VR(vr_index))
+
+    ' Check serial number
+    sii_addr = $0E
+    sii_len = 4
+    GOSUB get_sii
+    PRINT#comms,"SN  ";VR(vr_index)[0]
+
+    esc_reg = $10
+    esc_len = 2
+    GOSUB get_esc
+    PRINT#comms,"Configured Station Addr",VR(vr_index)[0]
+
+    esc_reg = $12
+    esc_len = 2
+    GOSUB get_esc
+    PRINT#comms,"Configured Alias Addr",VR(vr_index)[0]
+
+    PRINT#comms,""
+
+NEXT slv_pos
+
+RETURN
+
+
+' ********************************************************************
+' Check expected drive in correct position.
+'
+verify_network_slaves:
+
+' Constants
+CONSTANT "max_slaves",32
+CONSTANT "vid_index", 0
+CONSTANT "pid_index", 1
+CONSTANT "sn_index", 2
+
+vid = $66f
+pid = $51505001
+sn = $12090004
+
+'Data
+DIM slaves AS INTEGER(32,3)
+
+' Network information
+slaves(0,vid_index) = vid
+slaves(0,pid_index) = pid
+slaves(0,sn_index) = sn
+
+PRINT#comms,"Verify Network Slaves"
+
+' Find total number of slaves.
+IF NOT ETHERCAT($3,slt,vr_index) THEN
+    PRINT#comms,"Err: failed to read number of slaves on network."
+    STOP
+ELSEIF VR(vr_index) > max_slaves THEN
+    PRINT#comms,"Err: too many slaves on network."
+    STOP
+ELSE
+    num_slaves = VR(vr_index)
+
+    PRINT#comms,"Number of Slaves on network:",num_slaves[0]
+    PRINT#comms,""
+ENDIF
+
+' Check each slave.
+FOR slv_pos = 0 TO num_slaves - 1
+
+    ' Check Vendor ID
+    sii_addr = $08
+    sii_len = 4
+    GOSUB get_sii
+
+    IF VR(vr_index) <> slaves(slv_pos,vid_index) THEN
+        ' Not expected vendor ID
+        PRINT#comms,"Error. Slave at pos",slv_pos[0];"."
+        PRINT#comms,"Expected VID 0x";HEX(slaves(slv_pos,vid_index)),"Read 0x",HEX(VR(vr_index))
+    ELSE
+
+        ' Check product code
+        sii_addr = $0A
+        sii_len = 4
+        GOSUB get_sii
+
+        IF VR(vr_index) <> slaves(slv_pos,pid_index) THEN
+            ' Not expected product code
+            PRINT#comms,"Error. Slave at pos",slv_pos[0];"."
+            PRINT#comms,"Expected PID 0x";HEX(slaves(slv_pos,pid_index)),"Read 0x",HEX(VR(vr_index))
+
+        ELSE
+            ' Check serial number
+            sii_addr = $0E
+            sii_len = 4
+            GOSUB get_sii
+
+            IF VR(vr_index) <> slaves(slv_pos,sn_index) THEN
+                ' Not expected serial number.
+                PRINT#comms,"Error. Slave at pos",slv_pos[0];"."
+                PRINT#comms,"Expected serial number ";slaves(slv_pos,pid_index),"Read ",VR(vr_index)[0]
+
+            ELSE
+                ' All OK
+                PRINT#comms,"Succesfully verified slave at pos",slv_pos[0]
+                PRINT#comms,"VID 0x";HEX(slaves(slv_pos,vid_index))
+                PRINT#comms,"PID 0x";HEX(slaves(slv_pos,pid_index))
+                PRINT#comms,"SN  ";slaves(slv_pos,sn_index)[0]
+                PRINT#comms,""
+
+            ENDIF
+
+        ENDIF
+    ENDIF
+
+NEXT slv_pos
+
+RETURN

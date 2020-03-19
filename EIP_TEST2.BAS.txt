@@ -1,0 +1,135 @@
+
+DIM comms AS INTEGER = 5
+DIM i AS INTEGER
+DIM data_type AS INTEGER = 0
+
+
+'GOSUB config_eip_base_addr
+GOSUB display_eip_base_addr
+GOSUB display_eip_data_type
+STOP
+
+' Write (update) data type
+'ipc_dataformat_int16 = 0x00,
+'ipc_dataformat_int32 = 0x01,
+'ipc_dataformat_fp32 = 0x02,
+'ipc_dataformat_fp64 = 0x03, // NOT yet supported
+'ipc_dataformat_uint16 = 0x04
+data_type = 4
+GOSUB config_eip_data_type
+GOSUB display_eip_data_type
+
+'GOSUB config_eip_base_addr
+'GOSUB config_eip_data_type
+'gOSUB display_eip
+
+STOP
+
+
+config_eip_base_addr:
+' Write (update) vr base addresses
+' Instance 100 = vr 100, 101 = 200, 102 = 300, 103 = 400
+FOR i = 1 TO 4
+    IF NOT ETHERNET(1,-1,14,i,0,100*i) THEN
+        PRINT #comms,"Err: failed to set EIP Endpoint ";i[0];" base vr address"
+    ENDIF
+NEXT i
+
+RETURN
+
+
+
+display_eip_base_addr:
+PRINT #comms,"Instance Numbers"
+FOR i = 1 TO 4
+    PRINT#comms,"MC Endpoint ";i[0];
+    PRINT#comms,ETHERNET(0,-1,14,i,1)
+NEXT i
+PRINT #comms,"EIP Instance Indices"
+FOR i = 1 TO 4
+    PRINT#comms,"MC Endpoint ";i[0];" Instance Index: ";
+    PRINT#comms,ETHERNET(0,-1,14,i,5)
+NEXT i
+PRINT #comms,"EIP base vr address"
+FOR i = 1 TO 4
+    PRINT#comms,"MC Endpoint ";i[0];" vr address: ";
+    PRINT#comms,ETHERNET(0,-1,14,i,0)
+NEXT i
+
+
+RETURN
+
+
+config_eip_data_type:
+' Write (update) data type
+' ipc_dataformat_int16 = 0x00,
+'ipc_dataformat_int32 = 0x01,
+'ipc_dataformat_fp32 = 0x02,
+'ipc_dataformat_fp64 = 0x03, // NOT yet supported
+'ipc_dataformat_uint16 = 0x04
+
+'Set
+ETHERNET(1,-1,14,1,2,data_type) ' Instance 100
+ETHERNET(1,-1,14,2,2,data_type) ' Instance 101
+ETHERNET(1,-1,14,3,2,data_type) ' Instance 102
+ETHERNET(1,-1,14,4,2,data_type) ' Instance 103
+
+
+RETURN
+
+display_eip_data_type:
+' Write (update) data type
+' ipc_dataformat_int16 = 0x00,
+'ipc_dataformat_int32 = 0x01,
+'ipc_dataformat_fp32 = 0x02,
+'ipc_dataformat_fp64 = 0x03, // NOT yet supported
+'ipc_dataformat_uint16 = 0x04
+
+FOR i = 1 TO 4
+    PRINT#comms,"MC Endpoint ";i[0];" Data Type: ";
+    PRINT#comms,ETHERNET(0,-1,14,i,2)
+NEXT i
+
+RETURN
+
+customer_config:
+
+'Data Area
+' function param index = 1
+' vr = 3
+' table = 4
+
+'Data type
+' function param index = 2
+'ipc_dataformat_int16 = 0x00,
+'ipc_dataformat_int32 = 0x01,
+'ipc_dataformat_fp32 = 0x02,
+'ipc_dataformat_fp64 = 0x03, N/A
+'ipc_dataformat_uint16 = 0x04
+
+'Ethernet IP Assembly Object, Instance 100 (output) 16 bit integer
+ETHERNET(1,-1,14,1,1,3) ' vr/table
+ETHERNET(1,-1,14,1,2,4)'16 bit uint
+ETHERNET(1,-1,14,1,0,100)'base address of data
+ETHERNET(1,-1,14,1,3,100)'number of data locations returned
+
+'Ethernet IP Assembly Object, Instance 101 (output) 16 bit integer
+ETHERNET(1,-1,14,2,1,3) ' vr/table
+ETHERNET(1,-1,14,2,2,4)'16 bit uint
+ETHERNET(1,-1,14,2,0,200)'base address of data
+ETHERNET(1,-1,14,2,3,100)'number of data locations returned
+
+'Ethernet IP Assembly Object, Instance 102 (output) 32 bit floats
+ETHERNET(1,-1,14,3,1,3) ' vr/table
+ETHERNET(1,-1,14,3,2,2)'fp 32
+ETHERNET(1,-1,14,3,0,600)'base address of data
+ETHERNET(1,-1,14,3,3,100)'number of data locations returned
+
+'Ethernet IP Assembly Object, Instance 103 (output) 32 bit floats
+ETHERNET(1,-1,14,4,1,3) ' vr/table
+ETHERNET(1,-1,14,4,2,2)'fp 32
+ETHERNET(1,-1,14,4,0,800)'base address of data
+ETHERNET(1,-1,14,4,3,100)'number of data locations returned
+
+
+RETURN

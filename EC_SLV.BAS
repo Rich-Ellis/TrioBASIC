@@ -12,6 +12,7 @@ CONSTANT "vid_lsw", $02de
 CONSTANT "vid_msw", 0
 
 
+DIM dx4_esi  AS INTEGER(16) 'DX4 Servo Drive
 DIM p366_esi AS INTEGER(16) 'P366 Coupler
 DIM p371_esi AS INTEGER(16) 'P371 16 DOUT PNP
 DIM p372_esi AS INTEGER(16) 'P372 16 DIN PNP
@@ -49,7 +50,7 @@ GOSUB init
 
 GOSUB config_esi
 GOSUB display_esi_config
-GOSUB write_slave_esi
+'GOSUB write_slave_esi
 'GOSUB write_estun_es8200
 GOSUB read_slave_esi
 STOP
@@ -113,6 +114,24 @@ sn_lsw = ec_serial_number AND $ffff
 sn_msw = (ec_serial_number >> 16) AND $ffff
 rn_lsw = ec_revision AND $ffff
 rn_msg = (ec_revision >> 16) AND $ffff
+
+' DX4 - Trio servo drive 
+dx4_esi(0) = $0E89 'PDI Control - PDI deactivated (0x140:0x141)
+dx4_esi(1) = $CCBC 'PDI Configuration (0x150:0x151)
+dx4_esi(3) = $1388 'Extended PDI Configuration (0x152:0x153)
+dx4_esi(2) = $0000 'Pulse Length Sync Signal (0x982:0x983)
+dx4_esi(4) = $0000 'Configured Station Alias (0x012:0x013)
+dx4_esi(5) = $0000 'Reserved
+dx4_esi(6) = $0000 'Reserved
+dx4_esi(7) = $004E 'CRC
+dx4_esi(8) = vid_lsw 'Vendor ID (lsw)
+dx4_esi(9) = vid_msw 'Vendor ID (msw)
+dx4_esi(10) = $1000 'Product Code (lsw)
+dx4_esi(11) = $0000 'Product Code (msw)
+dx4_esi(12) = $0001 'Revision Number (lsw)
+dx4_esi(13) = $0000 'Revision Number (msw)
+dx4_esi(14) = $0000 'Serial number (lsw)
+dx4_esi(15) = $0000 'Serial Number (msw)
 
 ' P366 - coupler
 p366_esi(0) = $0100 'PDI Control - PDI deactivated (0x140:0x141)
@@ -417,10 +436,6 @@ PRINT ETHERCAT($30, slt, slv_pos, $61C, 2, 0)
 
 
 RETURN
-
-
-
-
 
 
 

@@ -1,0 +1,53 @@
+' ************************************************************
+' Thermocouple Heartbeat Test Program - by VR.
+'
+' RJE
+' Date : 04th Mar 2020
+'
+'
+' Program Operation
+' vr(0) = 1 to run the program and kick the heartbeat,
+'       = 0 to stop the heartbeat
+'
+' Input data is at vr(200..208)
+' status word is at VR(208), and will show 0 when ok, or 0x80 when
+' heartbeat has failed. The outputs should be disabled when the
+' heartbeat is not running
+'
+' Global control word is at vr(300)
+' Bits 0..3 control the output relays. Bits 5 & 6 are used for the
+' heartbeat (and should have opposite boolean values, and toggled
+' every second.
+'
+
+'Start test
+VR(0)=1
+
+WHILE TRUE
+' Toggle heart-beat bits in global control word by VR;
+' also alternate digital output control bits pattern in the
+' same control word.
+    PRINT "Hearthbeat running"
+    WHILE VR(0)
+    '  CO_WRITE(0, 1000, $4000, 1, 6, -1, $44)
+        'VR(300) = $45
+        VR(300) = ( VR(300) AND NOT $60 ) OR $40
+        WA(500)
+    '  CO_WRITE(0, 1000, $4000, 1, 6, -1, $2a)
+        'VR(300) = $2a
+        VR(300) = (VR(300) AND NOT $60) OR $20
+        WA(500)
+    WEND
+
+    'Verify Heartbeat timeout
+    TICKS=0
+    WHILE VR(208) = 0
+    WEND
+    PRINT "Heartbeat Timeout: ",-TICKS
+    PRINT "Status Word: ";HEX(VR(208))
+
+    'Wait for control reset
+    WHILE VR(0) = 0
+    WEND
+
+WEND

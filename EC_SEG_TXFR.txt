@@ -1,0 +1,33 @@
+' *********************************************************
+' Segmented Transfer Test Program
+' Date: 14th Jan 2020
+' Version: 1.00
+'
+' Notes
+' Parameter 0x3687 read from DX4 drive.
+
+DIM count AS INTEGER = 0
+DIM exit AS BOOLEAN = FALSE
+DIM verbose AS BOOLEAN = FALSE
+DIM comms AS INTEGER = 5
+DIM timeout_offset AS INTEGER = 200
+
+TICKS = 0
+PRINT ETHERCAT($161,0,1,$3687,0,$10000)
+
+OPEN#40 AS "EC_COE_FIFO" FOR FIFO_READ
+
+timeout = TICKS - timeout_offset
+WHILE timeout < TICKS
+    IF KEY#40 THEN
+        GET#40, char
+        IF verbose THEN PRINT#comms,char[0];
+        count = count + 1
+        timeout = TICKS - timeout_offset
+    ENDIF
+WEND
+
+CLOSE#40
+
+PRINT "Duration: ";-TICKS;" msec", "Count: ";count[0]
+

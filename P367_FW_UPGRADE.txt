@@ -1,0 +1,298 @@
+' ********************************************************************
+' Flexslice Firmware Upgrade Program
+' 
+' Ver: 1.0
+' Date: 10 Mar 2020
+' Author: RJE
+'
+' ********************************************************************
+
+'Constants
+DIM slt AS INTEGER = 0
+DIM comms AS INTEGER = 5
+
+' Program Data
+DIM slv_pos AS INTEGER = 0
+DIM slv_config_addr AS INTEGER = 0
+DIM vr_index AS INTEGER = 100
+DIM in_boot AS BOOLEAN = FALSE
+DIM num_slaves AS INTEGER = 0
+DIM sii_addr,sii_len,sii_value,esc_addr,esc_len,esc_data AS INTEGER
+DIM vendor_id, product_code AS INTEGER
+DIM input_value AS INTEGER
+DIM err_code AS INTEGER = 0
+DIM device_reprogrammed AS BOOLEAN = FALSE
+DIM check_count AS INTEGER = 0
+
+
+' ********************************************************************
+' Main
+'
+PRINT "********************************************************************"
+PRINT "EC_FOE - P367 Thermocouple FW Upgrade Program"
+PRINT "Open channel ";comms[0];" terminal window for command entry and progress information"
+
+PRINT#comms,""
+PRINT#comms,"********************************************************************"
+PRINT#comms,"EC_FOE - P367 Thermocouple FW Upgrade Program"
+PRINT#comms,""
+PRINT#comms,"1. You need an internal profile or EC_EXTEND profile which defines BOOT mailboxes for the slave."
+PRINT#comms,"2. The new thermocouple file must be copied onto the controller."
+PRINT#comms,"3. Program uses slot '0'"
+PRINT#comms,""
+PRINT#comms,"EC_FOE - scan network to find drives - THIS MAY TAKE A COUPLE OF MINUTES"
+
+DIM hello AS STRING(10)
+
+
+REPEAT
+
+' Ensure network is in init mode.
+ETHERCAT($21, slt, 0)
+
+' Scan network to identify slaves.
+ETHERCAT($21, slt, 0, $3)
+
+' Display network
+ETHERCAT($87, slt)
+
+' States 0:init, 1:preop, 2:safeop, 3:op
+IF NOT ETHERCAT(6, slt, vr_index) THEN
+    PRINT#comms, "Error - failed to read network status"
+    err_code = 1
+ELSE
+    IF (VR(vr_index) <> 0) THEN
+        PRINT#comms, "Error - failed to move to init state"
+        err_code = 2
+    ENDIF
+ENDIF
+
+IF err_code <>0 THEN EXIT_LOOP
+
+GOSUB get_num_slaves
+
+slv_pos = 0
+WHILE (slv_pos < num_slaves) AND (err_code = 0)
+
+    slv_config_addr=0
+    GOSUB find_next_thermocouple
+
+    IF (slv_pos < num_slaves) AND (slv_config_addr>0) THEN
+
+        PRINT#comms,"P367 Thermocouple found at pos: ";slv_pos[0];", Configured Address: ";slv_config_addr[0]
+        PRINT#comms,"Do you want to reprogram this unit ? (y/n)";
+        GET#comms,input_value
+        PRINT#comms,CHR(input_value)
+
+        IF input_value = 89 OR input_value = 121 THEN
+
+            PRINT#comms, "Changing selected slave to bootstrap"
+
+            'Move selected device into boot mode
+            IF NOT ETHERCAT($69, slt, slv_pos, -1) THEN
+                PRINT#comms, "Error - failed to request boot mode"
+                err_code = 3
+            ENDIF
+
+            'Delay to ensure state change completed.
+            WA(1000)
+            GOSUB verify_slave_in_bootmode
+
+            IF NOT in_boot THEN
+                PRINT#comms, "Error - slave failed to move into boot mode"
+                err_code = 4
+            ELSE
+                PRINT#comms, "Slave in Boot Mode and starting firmware upgrade"
+                PRINT #comms,"REPROGRAMMING SLAVE, pos",slv_pos[0]
+
+                GOSUB dl_file
+                GOSUB chk_dl_file
+                slv_pos = slv_pos + 1
+
+            ENDIF
+
+        ENDIF
+
+    ENDIF
+
+WEND
+
+UNTIL TRUE
+
+IF device_reprogrammed AND (err_code = 0) THEN
+    PRINT#comms,"PROGRAMMING SEQUENCE FINISHED - Switch back to sync-mode and restart ethercat network to execute ";
+ENDIF
+
+PRINT#comms,"Program execution completed."
+STOP
+
+
+
+
+
+
+' ********************************************************************
+' EtherCAT Handlers
+
+
+' ********************************************************************
+'
+dl_file:
+'params: func,slot,config_addr,file location, basic filenname (without the
+'.BIN extension), slave filename, password
+
+'Servo
+'PRINT ETHERCAT($140, slt, slv_config_addr, "c", "SERVO102", "FLEXAOUT", $E17FA023)
+'PRINT ETHERCAT($140, 0, 1000, "c", "FLEXSLICESERVOAPP_V0_001", "FLEXSERVO_uCon", $4F28112E)
+
+'AOUT
+'PRINT ETHERCAT($140, slt, slv_config_addr, "c", "AOUT104", "FLEXAOUT", $E17FA023)
+'PRINT ETHERCAT($140, slt, slv_config_addr, "c", "AO_LEDS_ON_CRC", "FLEXAOUT", $E17FA023)
+
+'Thermocouple
+PRINT#comms, ETHERCAT($140, slt, slv_config_addr, "c", "FlexsliceTCApp", "FLEXTC", $73f15dc9)
+'PRINT ETHERCAT($140,0,$1000,"c","FlexsliceTCApp","FLEXTC",$73f15dc9)
+
+RETURN
+
+' ********************************************************************
+'
+chk_dl_file:
+
+FOR check_count = 1 TO 5
+    ' Give some time for download command to complete.
+    WA(1000)
+    'ECAT Func $142 returns: Status, Percent, ErrCode, ErrIndex.
+    PRINT#comms,"CHECKING PROGRESS: 0:0:0:0 means complete (Report format is Status:Percent:ErrCode:ErrIndex)"
+    PRINT#comms, ETHERCAT($142, slt, slv_config_addr)
+NEXT check_count
+device_reprogrammed = TRUE
+
+RETURN
+
+
+
+' ********************************************************************
+'
+get_num_slaves:
+IF NOT ETHERCAT($3,slt,vr_index) THEN
+    PRINT#comms,"Err: failed to read number of slaves on network."
+    err_code = 10
+ELSE
+    num_slaves = VR(vr_index)
+    PRINT #comms,"EtherCAT number slaves on network:",num_slaves[0]
+ENDIF
+
+RETURN
+
+
+' ********************************************************************
+'
+get_sii:
+' Print error if fails to read value, otherwise return in vr.
+IF NOT ETHERCAT($61,slt,slv_pos,sii_addr,sii_len,vr_index) THEN
+    PRINT#comms,"Err: failed to read SII reg 0x";HEX(sii_addr);" of slave at pos: ";slv_pos[0]
+    err_code = 20
+ELSE
+    sii_value = VR(vr_index)
+ENDIF
+
+RETURN
+
+
+' ********************************************************************
+'
+read_esc:
+IF NOT ETHERCAT($31, slt, slv_pos, esc_addr, esc_len, vr_index) THEN
+    PRINT#comms, "Failed to read addr 0x", HEX(esc_addr)
+    err_code = 30
+ELSE
+
+    PRINT#comms, "(ESC Addr 0x"; HEX(esc_addr), "Data 0x"; HEX(VR(vr_index));")"
+    esc_data = VR(vr_index)
+ENDIF
+
+RETURN
+
+
+' ********************************************************************
+'
+get_slave_config_addr:
+IF NOT ETHERCAT($4, slt, slv_pos, vr_index) THEN
+    PRINT#comms, "Failed to read configured address of slave at pos", slv_pos[0]
+    err_code = 40
+ELSE
+    slv_config_addr = VR(vr_index)
+ENDIF
+
+RETURN
+
+' ********************************************************************
+'
+
+verify_slave_in_bootmode:
+
+DIM esc_al_status, esc_al_status_code AS INTEGER
+
+'Verify in boot mode
+esc_addr = $130
+esc_len = 2
+' FoE filename and data is transferred as a byte array
+GOSUB read_esc
+esc_al_status = esc_data
+
+IF esc_al_status <> 3 THEN
+    PRINT#comms, "Error - failed to invoke boot mode"
+    PRINT#comms, "Slave at pos : ";slv_pos[0]
+
+    esc_addr = $134
+    esc_len = 2
+    GOSUB read_esc
+    esc_al_status_code = esc_data
+
+    PRINT#comms, "Slave AL Status: 0x";HEX(esc_al_status);", Al Status Code: 0x";HEX(esc_al_status_code)
+    err_code = 50
+ELSE
+    in_boot = TRUE
+ENDIF
+
+RETURN
+
+
+' ********************************************************************
+' Find next thermocouple in network.
+
+find_next_thermocouple:
+
+'For each slave in the network, until thermocouple found.
+WHILE slv_pos < num_slaves
+
+    PRINT#comms,""
+    PRINT#comms, "Slave on slot ";slt[0];" at position ";slv_pos[0]
+
+    ' Check Vendor ID
+    sii_addr = $08
+    sii_len = 4
+    sii_value = 0
+    GOSUB get_sii
+    vendor_id = sii_value
+
+    ' Check Product Code
+    sii_addr = $0A
+    sii_len = 4
+    sii_value = 0
+    GOSUB get_sii
+    product_code = sii_value
+
+    PRINT#comms,"Vendor ID: 0x";HEX(vendor_id)
+    PRINT#comms,"Product Code: ";product_code
+
+    IF ( vendor_id = $2de) AND (product_code = 367) THEN
+        GOSUB get_slave_config_addr
+        EXIT_LOOP
+    ENDIF
+
+    slv_pos = slv_pos + 1
+WEND
+
+RETURN
